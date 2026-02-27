@@ -16,20 +16,18 @@ class TestDatabaseConnection(unittest.TestCase):
             self.db_path.unlink()
 
     def test_connection(self):
-        conn = self.db._get_connection()
-        self.assertIsNotNone(conn)
-        conn.close()
+        # Проверяем, что контекстный менеджер работает без ошибок
+        with self.db._connection() as conn:
+            self.assertIsNotNone(conn)
 
     def test_tables_exist(self):
-        conn = self.db._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [row[0] for row in cursor.fetchall()]
-        conn.close()
-
         expected_tables = ["vault_entries", "audit_log", "settings", "key_store"]
-        for table in expected_tables:
-            self.assertIn(table, tables)
+        with self.db._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = [row[0] for row in cursor.fetchall()]
+            for table in expected_tables:
+                self.assertIn(table, tables)
 
 if __name__ == "__main__":
     unittest.main()
