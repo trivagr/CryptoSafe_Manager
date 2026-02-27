@@ -26,15 +26,14 @@ class TestInitialSetupIntegration(unittest.TestCase):
 
     def test_initial_setup_flow(self):
 
-        # Проверяем, что база создана и таблицы существуют
-        conn = self.db._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [row[0] for row in cursor.fetchall()]
+        with self.db._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = [row[0] for row in cursor.fetchall()]
+
         expected_tables = ["vault_entries", "audit_log", "settings", "key_store"]
         for table in expected_tables:
-            self.assertIn(table, tables)
-        conn.close()
+            assert table in tables
 
         self.db.add_entry(
             title="First Entry",
