@@ -1,0 +1,8 @@
+# GUI framework
+PyQt5==5.15.9
+
+# Криптография (AES, будущее)
+cryptography==41.0.3
+
+# Тестирование
+pytest==8.2.0
