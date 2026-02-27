@@ -2,7 +2,7 @@ import threading
 from typing import Optional
 from src.database.db import DatabaseHelper
 from src.core.crypto.abstract import EncryptionService
-
+from src.core.crypto.placeholder import secure_zero_bytes
 
 class StateManager:
 
@@ -25,9 +25,12 @@ class StateManager:
             self._session_locked = False
 
     def set_clipboard(self, content: str, timeout: int = 30):
-
         with self._lock:
+            # Обнуляем старое содержимое буфера
+            if self._clipboard_content:
+                secure_zero_bytes(bytearray(self._clipboard_content.encode()))
             self._clipboard_content = content
+
             if self._clipboard_timer:
                 self._clipboard_timer.cancel()
             self._clipboard_timer = threading.Timer(timeout, self.clear_clipboard)
@@ -39,10 +42,19 @@ class StateManager:
 
     def clear_clipboard(self):
         with self._lock:
+            if self._clipboard_content:
+                secure_zero_bytes(bytearray(self._clipboard_content.encode()))
             self._clipboard_content = None
+
             if self._clipboard_timer:
                 self._clipboard_timer.cancel()
                 self._clipboard_timer = None
+
+    def clear_session_key(self):
+        with self._lock:
+            if self._session_key:
+                secure_zero_bytes(bytearray(self._session_key))
+                self._session_key = None
 
     def set_setting(self, key: str, value: str, encrypted: bool = False):
 

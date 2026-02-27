@@ -1,4 +1,5 @@
 import hashlib
+from src.core.crypto.placeholder import secure_zero_bytes
 
 class KeyManager:
 
@@ -6,8 +7,10 @@ class KeyManager:
         self._key = None
 
     def derive_key(self, password: str, salt: bytes) -> bytes:
-        data = password.encode() + salt
-        return hashlib.sha256(data).digest()
+        temp_bytes = bytearray(password.encode() + salt)
+        derived = hashlib.sha256(temp_bytes).digest()
+        secure_zero_bytes(temp_bytes)
+        return derived
 
     def store_key(self):
         return self._key

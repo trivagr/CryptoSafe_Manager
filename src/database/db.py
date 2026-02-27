@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 from src.core.crypto.abstract import EncryptionService
 from contextlib import contextmanager
+from src.core.crypto.placeholder import secure_zero_bytes
 
 
 class DatabaseHelper:
@@ -95,11 +96,18 @@ class DatabaseHelper:
         updated_at: str,
         tags: Optional[str]
     ):
-        encrypted_password = self.crypto.encrypt(password.encode(), self.key)
-        encrypted_notes = (
-            self.crypto.encrypt(notes.encode(), self.key)
-            if notes else None
-        )
+        # Превращаем пароль в bytearray для шифрования
+        password_bytes = bytearray(password.encode())
+        encrypted_password = self.crypto.encrypt(password_bytes, self.key)
+        # Обнуляем временный bytearray
+        secure_zero_bytes(password_bytes)
+
+        # Превращаем заметки в bytearray, если есть
+        notes_bytes = bytearray(notes.encode()) if notes else None
+        encrypted_notes = self.crypto.encrypt(notes_bytes, self.key) if notes_bytes else None
+        # Обнуляем временный bytearray
+        if notes_bytes:
+            secure_zero_bytes(notes_bytes)
 
         with self._lock:
             conn = self._get_connection()
@@ -141,11 +149,14 @@ class DatabaseHelper:
         if not row:
             return None
 
-        decrypted_password = self.crypto.decrypt(row[3], self.key).decode()
-        decrypted_notes = (
-            self.crypto.decrypt(row[5], self.key).decode()
-            if row[5] else None
-        )
+        decrypted_password_bytes = bytearray(self.crypto.decrypt(row[3], self.key))
+        decrypted_password = decrypted_password_bytes.decode()
+        secure_zero_bytes(decrypted_password_bytes)  # ОБНУЛЯЕМ
+
+        decrypted_notes_bytes = bytearray(self.crypto.decrypt(row[5], self.key)) if row[5] else None
+        decrypted_notes = decrypted_notes_bytes.decode() if decrypted_notes_bytes else None
+        if decrypted_notes_bytes:
+            secure_zero_bytes(decrypted_notes_bytes)  # ОБНУЛЯЕМ
 
         return {
             "id": row[0],
