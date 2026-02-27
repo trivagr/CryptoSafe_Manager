@@ -1,10 +1,23 @@
-from PyQt5.QtWidgets import QTableWidget, QTableWidgetItem
+import tkinter as tk
+from tkinter import ttk
 
-class SecureTable(QTableWidget):
-    def __init__(self, rows=5, columns=5):
-        super().__init__(rows, columns)
-        self.setHorizontalHeaderLabels(["Title", "Username", "Password", "URL", "Notes"])
-        # Пример тестовых данных
-        self.setItem(0, 0, QTableWidgetItem("Example"))
-        self.setItem(0, 1, QTableWidgetItem("user@example.com"))
-        self.setItem(0, 2, QTableWidgetItem("********"))
+class SecureTable(ttk.Frame):
+    """
+    Таблица для отображения записей хранилища.
+    """
+    def __init__(self, parent, columns=None):
+        super().__init__(parent)
+        self.columns = columns or ["ID", "Title", "Username", "Password", "URL", "Notes", "Tags"]
+        self.tree = ttk.Treeview(self, columns=self.columns, show="headings")
+        for col in self.columns:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=100)
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+    def insert_row(self, row: dict):
+        values = [row.get(col.lower(), "") for col in self.columns]
+        self.tree.insert("", tk.END, values=values)
+
+    def clear(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)

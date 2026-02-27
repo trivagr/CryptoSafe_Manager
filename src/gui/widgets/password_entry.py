@@ -1,21 +1,26 @@
-from PyQt5.QtWidgets import QWidget, QLineEdit, QPushButton, QHBoxLayout
+import tkinter as tk
+from tkinter import ttk
 
-class PasswordEntry(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.input = QLineEdit()
-        self.input.setEchoMode(QLineEdit.Password)
-        self.show_btn = QPushButton("Показать")
-        self.show_btn.setCheckable(True)
-        self.show_btn.toggled.connect(self.toggle_password)
+class PasswordEntry(ttk.Frame):
+    """
+    Поле ввода пароля с маскировкой и кнопкой показа.
+    """
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.var = tk.StringVar()
+        self.entry = ttk.Entry(self, textvariable=self.var, show="*")
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        layout = QHBoxLayout()
-        layout.addWidget(self.input)
-        layout.addWidget(self.show_btn)
-        self.setLayout(layout)
+        self.show_btn = ttk.Button(self, text="Показать", width=8, command=self.toggle_show)
+        self.show_btn.pack(side=tk.RIGHT)
+        self._visible = False
 
-    def toggle_password(self, checked):
-        if checked:
-            self.input.setEchoMode(QLineEdit.Normal)
-        else:
-            self.input.setEchoMode(QLineEdit.Password)
+    def toggle_show(self):
+        self._visible = not self._visible
+        self.entry.config(show="" if self._visible else "*")
+
+    def get(self):
+        return self.var.get()
+
+    def set(self, value: str):
+        self.var.set(value)
