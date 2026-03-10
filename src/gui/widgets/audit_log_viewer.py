@@ -1,16 +1,18 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import scrolledtext
 
-class AuditLogViewer(ttk.Frame):
+class AuditLogViewer(tk.Frame):
     """
-    Заглушка просмотра журнала аудита.
+    Просмотр журнала действий
     """
     def __init__(self, parent):
         super().__init__(parent)
-        self.text = tk.Text(self, height=10, state="disabled")
+        self.text = scrolledtext.ScrolledText(self, height=10)
         self.text.pack(fill=tk.BOTH, expand=True)
+        self.text.config(state=tk.DISABLED)
 
-    def add_entry(self, entry: str):
-        self.text.config(state="normal")
-        self.text.insert(tk.END, entry + "\n")
-        self.text.config(state="disabled")
+    def add_entry(self, message: str):
+        self.text.config(state=tk.NORMAL)
+        self.text.insert(tk.END, message + "\n")
+        self.text.see(tk.END)
+        self.text.config(state=tk.DISABLED)

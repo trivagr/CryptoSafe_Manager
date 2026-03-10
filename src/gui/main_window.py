@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox
 from src.gui.widgets.password_entry import PasswordEntry
 from src.gui.widgets.secure_table import SecureTable
 from src.gui.widgets.audit_log_viewer import AuditLogViewer
@@ -40,7 +40,7 @@ class MainWindow(tk.Tk):
         self.menu.add_cascade(label="Справка", menu=help_menu)
 
         # ====================
-        # Центральный виджет таблицы
+        # Центральная таблица
         # ====================
         self.table = SecureTable(self)
         self.table.pack(fill=tk.BOTH, expand=True)
@@ -58,15 +58,15 @@ class MainWindow(tk.Tk):
             })
 
         # ====================
+        # Audit log
+        # ====================
+        self.audit_viewer = AuditLogViewer(self)
+
+        # ====================
         # Строка состояния
         # ====================
         self.status_bar = ttk.Label(self, text="Сессия: заблокирована | Буфер: пуст", relief=tk.SUNKEN, anchor="w")
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-
-        # ====================
-        # Заглушки AuditLog
-        # ====================
-        self.audit_viewer = AuditLogViewer(self)
 
     # ====================
     # Заглушки действий
@@ -80,6 +80,7 @@ class MainWindow(tk.Tk):
 
     def show_settings(self):
         self.dummy_action()
+
 
 if __name__ == "__main__":
     app = MainWindow()
