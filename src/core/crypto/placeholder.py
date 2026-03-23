@@ -9,32 +9,24 @@ def secure_zero_bytes(data: bytes):
 
 class AES256Placeholder(EncryptionService):
 
-    def encrypt(self, data: bytes, key: bytes) -> bytes:
+    def encrypt(self, data: bytes) -> bytes:
+        return self._key_manager.limited_use_key(lambda key: self.xor(data, key))
+
+    def decrypt(self, ciphertext: bytes) -> bytes:
+        return self._key_manager.limited_use_key(lambda key: self.xor(ciphertext, key))
+
+    def xor(self, data: bytes, key: bytes ) -> bytes:
+
         data_bytes = bytearray(data)
         key_bytes = bytearray(key)
-        encrypted_data = bytearray()
+        result_data = bytearray()
 
         key_pos = 0
         for b in data_bytes:
-            encrypted_data.append(b ^ key_bytes[key_pos])
+            result_data.append(b ^ key_bytes[key_pos])
             key_pos = (key_pos + 1) % len(key_bytes)
 
         secure_zero_bytes(data_bytes)
         secure_zero_bytes(key_bytes)
 
-        return bytes(encrypted_data)
-
-    def decrypt(self, ciphertext: bytes, key: bytes) -> bytes:
-        cipher_bytes = bytearray(ciphertext)
-        key_bytes = bytearray(key)
-        decrypted_data = bytearray()
-
-        key_pos = 0
-        for b in cipher_bytes:
-            decrypted_data.append(b ^ key_bytes[key_pos])
-            key_pos = (key_pos + 1) % len(key_bytes)
-
-        secure_zero_bytes(cipher_bytes)
-        secure_zero_bytes(key_bytes)
-
-        return bytes(decrypted_data)
+        return bytes(result_data)

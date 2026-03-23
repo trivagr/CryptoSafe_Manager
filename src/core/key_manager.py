@@ -5,6 +5,17 @@ class KeyManager:
 
     def __init__(self):
         self._key = None
+        self._unlocked = False
+
+    def unlock_key(self, key : bytes):
+        self._key = key
+        self._unlocked = True
+
+    def lock_key(self):
+        if self._key:
+            secure_zero_bytes(bytearray(self._key))
+        self._unlocked = False
+        self._key = None
 
     def derive_key(self, password: str, salt: bytes) -> bytes:
         temp_bytes = bytearray(password.encode() + salt)
@@ -12,10 +23,7 @@ class KeyManager:
         secure_zero_bytes(temp_bytes)
         return derived
 
-    def store_key(self):
-        return self._key
-
-    def load_key(self):
-        if self._key is None:
-            raise ValueError("Ключ не установлен. Вызовите derive_key и store_key сначала.")
-        return self._key
+    def limited_use_key(self, func):
+        if self._unlocked == False:
+            raise ValueError("Ключ недоступен")
+        return func(self._key)
