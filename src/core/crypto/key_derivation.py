@@ -22,13 +22,6 @@ def password_verify(hashed_password, password):
 
 
 
-def slat_generation():
-    salt = secrets.token_bytes(16)
-
-    return salt
-
-
-
 def key_derive(password, salt):
     derived_key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100000, 32)
 

@@ -1,5 +1,5 @@
-import hashlib
 from src.core.crypto.placeholder import secure_zero_bytes
+from src.core.crypto import key_derivation
 
 class KeyManager:
 
@@ -8,7 +8,7 @@ class KeyManager:
         self._unlocked = False
 
     def unlock_key(self, key : bytes):
-        self._key = key
+        self._key = bytearray(key)
         self._unlocked = True
 
     def lock_key(self):
@@ -18,12 +18,9 @@ class KeyManager:
         self._key = None
 
     def derive_key(self, password: str, salt: bytes) -> bytes:
-        temp_bytes = bytearray(password.encode() + salt)
-        derived = hashlib.sha256(temp_bytes).digest()
-        secure_zero_bytes(temp_bytes)
-        return derived
+        return key_derivation.key_derive(password, salt)
 
     def limited_use_key(self, func):
         if self._unlocked == False:
             raise ValueError("Ключ недоступен")
-        return func(self._key)
+        return func(bytes(self._key))
