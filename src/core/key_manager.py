@@ -1,5 +1,4 @@
 from src.core.crypto.placeholder import secure_zero_bytes
-from src.core.crypto import key_derivation
 
 class KeyManager:
 
@@ -12,13 +11,10 @@ class KeyManager:
         self._unlocked = True
 
     def lock_key(self):
-        if self._key:
-            secure_zero_bytes(bytearray(self._key))
+        if self._key is not None:
+            secure_zero_bytes(self._key)
         self._unlocked = False
         self._key = None
-
-    def derive_key(self, password: str, salt: bytes) -> bytes:
-        return key_derivation.key_derive(password, salt)
 
     def limited_use_key(self, func):
         if self._unlocked == False:
