@@ -1,28 +1,29 @@
-from src.core.crypto.placeholder import secure_zero_bytes
+from src.core.crypto.key_storage import KeyStorage
 from src.core.crypto.key_derivation import KeyHashing
 
 class KeyManager:
 
-    def __init__(self, config):
-        self.hash = KeyHashing(config)
-        self._key = None
+    def __init__(self):
+        self.hashing = KeyHashing()
+        self.storage = KeyStorage()
         self._unlocked = False
 
     def unlock(self, password, stored_hash, salt):
-        if not self.hash.password_verify(password, stored_hash):
+        if not self.hashing.password_verify(password, stored_hash):
             return False
 
-        self._key = self.hash.derive(password, salt)
+        key = self.hashing.derive(password, salt)
+
+        self.storage.store_key(key)
+
         self._unlocked = True
         return True
 
     def lock(self):
-        if self._key:
-            secure_zero_bytes(self._key)
-        self._key = None
+        self.storage.clear_key()
         self._unlocked = False
 
     def get_key(self):
         if not self._unlocked:
             raise ValueError("Locked")
-        return bytes(self._key)
+        return self.storage.get_key()
