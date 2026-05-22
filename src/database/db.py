@@ -30,56 +30,72 @@ class DatabaseHelper:
         finally:
             conn.close()
 
+    def get_database_version(self, cursor):
+        cursor.execute("""PRAGMA user_version;""")
+        return cursor.fetchone()[0]
+
+    def migrate_database(self, cursor):
+        version = self.get_database_version(cursor)
+
+        if version < 1:
+            self.migration_v1(cursor)
+
+        if version < 2:
+            self.migration_v2(cursor)
+
+    def migration_v1(self, cursor):
+        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS vault_entries (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                title TEXT NOT NULL,
+                                username TEXT,
+                                encrypted_password BLOB NOT NULL,
+                                url TEXT,
+                                notes BLOB,
+                                created_at TEXT,
+                                updated_at TEXT,
+                                tags TEXT
+                            );
+                        """)
+
+        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS audit_log (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                action TEXT,
+                                timestamp TEXT,
+                                entry_id INTEGER,
+                                details TEXT,
+                                signature TEXT
+                            );
+                        """)
+
+        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS settings (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                setting_key TEXT UNIQUE,
+                                setting_value TEXT,
+                                encrypted INTEGER DEFAULT 0
+                            );
+                        """)
+
+        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS key_store (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                key_type TEXT,
+                                salt BLOB,
+                                hash BLOB,
+                                params TEXT
+                            );
+                        """)
+
+        cursor.execute("PRAGMA user_version = 1;")
+
     def _initialize_database(self):
         with self._lock:
             with self._connection() as conn:
                 cursor = conn.cursor()
 
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS vault_entries (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        title TEXT NOT NULL,
-                        username TEXT,
-                        encrypted_password BLOB NOT NULL,
-                        url TEXT,
-                        notes BLOB,
-                        created_at TEXT,
-                        updated_at TEXT,
-                        tags TEXT
-                    );
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS audit_log (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        action TEXT,
-                        timestamp TEXT,
-                        entry_id INTEGER,
-                        details TEXT,
-                        signature TEXT
-                    );
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS settings (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        setting_key TEXT UNIQUE,
-                        setting_value TEXT,
-                        encrypted INTEGER DEFAULT 0
-                    );
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS key_store (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        key_type TEXT,
-                        salt BLOB,
-                        hash BLOB,
-                        params TEXT
-                    );
-                """)
-
-                cursor.execute("PRAGMA user_version = 1;")
+                self.migrate_database(cursor)
 
     def add_entry(
         self,
