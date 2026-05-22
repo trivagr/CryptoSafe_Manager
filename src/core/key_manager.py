@@ -1,22 +1,29 @@
 from src.core.crypto.placeholder import secure_zero_bytes
+from src.core.crypto.key_derivation import AuthHasher, KeyDeriver
 
 class KeyManager:
 
-    def __init__(self):
+    def __init__(self, config):
+        self.auth = AuthHasher(config)
+        self.derive = KeyDeriver(config)
         self._key = None
         self._unlocked = False
 
-    def unlock_key(self, key : bytes):
-        self._key = bytearray(key)
+    def unlock(self, password, stored_hash, salt):
+        if not self.auth.verify(password, stored_hash):
+            return False
+
+        self._key = self.derive.derive(password, salt)
         self._unlocked = True
+        return True
 
-    def lock_key(self):
-        if self._key is not None:
-            secure_zero_bytes(self._key)
-        self._unlocked = False
+    def lock(self):
+        if self._key:
+            secure_zero_bytes(bytearray(self._key))
         self._key = None
+        self._unlocked = False
 
-    def limited_use_key(self, func):
-        if self._unlocked == False:
-            raise ValueError("Ключ недоступен")
-        return func(bytes(self._key))
+    def get_key(self):
+        if not self._unlocked:
+            raise ValueError("Locked")
+        return self._key

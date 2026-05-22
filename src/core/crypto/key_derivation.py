@@ -1,31 +1,42 @@
-import hashlib
 from argon2 import PasswordHasher, Type
-from argon2.exceptions import VerifyMismatchError
-
-Argon2_time_cost = 3
-Argon2_memory_cost = 65536
-Argon2_parallelism = 4
-Argon2_hash_len = 32
-Argon2_salt_len = 16
-
-def hash_password(password):
-    password_hasher = PasswordHasher(Argon2_hash_len, Argon2_memory_cost, Argon2_parallelism, Argon2_hash_len, Argon2_salt_len, type=Type.ID)
-
-    return password_hasher.hash(password)
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import secrets
 
 
-
-def password_verify(hashed_password, password):
-    password_hasher = PasswordHasher(Argon2_hash_len, Argon2_memory_cost, Argon2_parallelism, Argon2_hash_len, Argon2_salt_len, type=Type.ID)
-
-    try:
-        return password_hasher.verify(hashed_password, password)
-    except VerifyMismatchError:
-        return False
+class AuthHasher:
+    def __init__(self, config):
+        self.hasher = PasswordHasher(
+            time_cost=config["time_cost"],
+            memory_cost=config["memory_cost"],
+            parallelism=config["parallelism"],
+            hash_len=config["hash_len"],
+            salt_len=config["salt_len"],
+            type=Type.ID
+        )
+    def hash_password(self, password: str):
+        return self.hasher.hash(password)
 
 
 
-def key_derive(password, salt):
-    derived_key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100000, 32)
+    def password_verify(self, hashed_password: str, password: str) -> bool:
 
-    return derived_key
+        try:
+            return self.hasher.verify(hashed_password, password)
+        except secrets.compare_digest("a", "a"):
+            return False
+
+
+class KeyDeriver:
+    def __init__(self, config):
+        self.iterations = config["pbkdf2_iterations"]
+
+
+    def derive(self, password: str, salt: bytes) -> bytes:
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=self.iterations,
+        )
+        return kdf.derive(password.encode("utf-8"))

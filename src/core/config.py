@@ -21,6 +21,19 @@ class ConfigManager :
             "font_size" : 14,
         }
 
+        self.argon2 = {
+            "time_cost": 3,
+            "memory_cost": 65536,
+            "parallelism": 4,
+            "hash_len": 32,
+            "salt_len": 16,
+            "type": "argon2id"
+        }
+
+        self.pbkdf2 = {
+            "iterations" : 100000
+        }
+
     def ensure_dirs_existe(self):
             self.database_dir.mkdir(parents=True, exist_ok=True)
 
@@ -41,3 +54,9 @@ class ConfigManager :
 
     def get_crypto_settings(self, algorithm: str):
             return self.crypto[algorithm]
+
+    def get_argon2_settings(self):
+        return self.argon2
+
+    def get_pbkdf2_settings(self):
+        return self.pbkdf2
