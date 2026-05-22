@@ -19,11 +19,11 @@ class KeyManager:
 
     def lock(self):
         if self._key:
-            secure_zero_bytes(bytearray(self._key))
+            secure_zero_bytes(self._key)
         self._key = None
         self._unlocked = False
 
     def get_key(self):
         if not self._unlocked:
             raise ValueError("Locked")
-        return self._key
+        return bytes(self._key)
