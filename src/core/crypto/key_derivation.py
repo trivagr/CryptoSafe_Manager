@@ -2,6 +2,7 @@ from argon2 import PasswordHasher, Type
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from src.core.crypto.password_validator import validate_password
+import os
 import secrets
 
 
@@ -35,7 +36,8 @@ class KeyHashing:
             secrets.compare_digest("a", "a")
             return False
 
-
+    def salt_generate(self) -> bytes:
+        return os.urandom(16)
 
     def derive(self, password: str, salt: bytes) -> bytes:
         kdf = PBKDF2HMAC(

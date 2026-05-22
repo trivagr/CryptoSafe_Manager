@@ -39,9 +39,13 @@ class DatabaseHelper:
 
         if version < 1:
             self.migration_v1(cursor)
+            cursor.execute("""PRAGMA user_version = 1;""")
+            version = 1
 
         if version < 2:
             self.migration_v2(cursor)
+            cursor.execute("""PRAGMA user_version = 2;""")
+            version = 2
 
     def migration_v1(self, cursor):
         cursor.execute("""
@@ -82,9 +86,10 @@ class DatabaseHelper:
                             CREATE TABLE IF NOT EXISTS key_store (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 key_type TEXT,
-                                salt BLOB,
-                                hash BLOB,
-                                params TEXT
+                                key_data BLOB,
+                                params TEXT,
+                                version INTEGER,
+                                created_at TIMESTAMP
                             );
                         """)
 
