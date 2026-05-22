@@ -1,39 +1,55 @@
 import time
+import threading
 from src.core.crypto.placeholder import secure_zero_bytes
 
 
-cached_key = None
-last_access = None
 
-TIMEOUT = 3600
-
-
-def store_key(key:bytes):
-    global last_access, cached_key
-
-    cached_key = bytearray(key)
-    last_access = time.time()
+class KeyStorage:
+    def __init__(self, timeout: int = 3600):
+        self._key = None
+        self._last_access = None
+        self._timeout = timeout
+        self._active = True
+        self._lock = threading.Lock()
 
 
-def get_key():
-    global last_access, cached_key
+    def store_key(self, key:bytes):
 
-    if cached_key is None:
-        return None
-
-    if time.time() - last_access > TIMEOUT:
-        clear_key()
-        return None
-
-    last_access = time.time()
-    return bytes(cached_key)
+        with self._lock:
+            self._key = bytearray(key)
+            self._last_access = time.time()
 
 
-def clear_key():
-    global last_access, cached_key
+    def get_key(self):
+        with self._lock:
 
-    if cached_key is not None:
-        secure_zero_bytes(cached_key)
+            if not self._active:
+                return None
 
-        cached_key = None
-        last_access = None
+            if self._key is None:
+                return None
+
+            if time.time() - self._last_access > self._timeout:
+                self.clear_key()
+                return None
+
+            self._last_access = time.time()
+            return bytes(self._key)
+
+
+    def clear_key(self):
+        with self._lock:
+
+            if self._key is not None:
+                secure_zero_bytes(self._key)
+
+                self._key = None
+                self._last_access = None
+
+
+    def set_active(self, active:bool):
+        with self._lock:
+
+            self._active = active
+            if not active:
+                self.clear_key()
