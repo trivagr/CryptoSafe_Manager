@@ -1,5 +1,5 @@
 import time
-from src.core.crypto import key_derivation
+from src.core.crypto.key_derivation import KeyHashing
 from src.core.key_manager import KeyManager
 
 
@@ -7,19 +7,17 @@ failed_attempts = 0
 last_login_time = None
 is_authenticated = False
 
-key_manager = KeyManager()
-
 
 def authenticate(password, stored_hash, salt):
     global failed_attempts, last_login_time, is_authenticated
 
-    if not key_derivation.password_verify(password, stored_hash):
+    if not KeyHashing.password_verify(password, stored_hash):
         handle_failed_attempt()
         return False
 
-    encryption_key = key_derivation.key_derive(password, salt)
+    encryption_key = KeyHashing.derive(password, salt)
 
-    key_manager.unlock_key(encryption_key)
+    KeyManager.unlock_key(encryption_key)
 
     failed_attempts = 0
     is_authenticated = True
@@ -32,7 +30,7 @@ def authenticate(password, stored_hash, salt):
 def logout():
     global is_authenticated, failed_attempts
 
-    key_manager.lock_key()
+    KeyManager.lock_key()
 
     is_authenticated = False
     failed_attempts = 0
