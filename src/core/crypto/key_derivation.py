@@ -2,27 +2,29 @@ from argon2 import PasswordHasher, Type
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from src.core.crypto.password_validator import validate_password
+from src.core.config import ConfigManager
 import os
 import secrets
 
 
 
 class KeyHashing:
-    def __init__(self, config):
+    def __init__(self):
+        config = ConfigManager()
         self.hasher = PasswordHasher(
-            time_cost=config["time_cost"],
-            memory_cost=config["memory_cost"],
-            parallelism=config["parallelism"],
-            hash_len=config["hash_len"],
-            salt_len=config["salt_len"],
+            time_cost=config.argon2["time_cost"],
+            memory_cost=config.argon2["memory_cost"],
+            parallelism=config.argon2["parallelism"],
+            hash_len=config.argon2["hash_len"],
+            salt_len=config.argon2["salt_len"],
             type=Type.ID
         )
-        self.iterations = config["pbkdf2_iterations"]
+        self.iterations = config.pbkdf2["pbkdf2_iterations"]
 
 
 
     def hash_password(self, password: str):
-        if validate_password(password):
+        if not validate_password(password):
             raise ValueError("Weak passwor")
         return self.hasher.hash(password)
 
