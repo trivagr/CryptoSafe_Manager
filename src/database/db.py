@@ -5,7 +5,6 @@ from typing import Optional
 from contextlib import contextmanager
 
 from src.core.crypto.abstract import EncryptionService
-from src.core.crypto.placeholder import secure_zero_bytes
 
 
 class DatabaseHelper:
@@ -40,25 +39,18 @@ class DatabaseHelper:
         if version < 1:
             self.migration_v1(cursor)
             cursor.execute("PRAGMA user_version = 1;")
-            version = 1
 
         if version < 2:
             self.migration_v2(cursor)
             cursor.execute("PRAGMA user_version = 2;")
-            version = 2
 
     def migration_v1(self, cursor):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vault_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                username TEXT,
-                encrypted_password BLOB NOT NULL,
-                url TEXT,
-                notes BLOB,
+                encrypted_data BLOB NOT NULL,
                 created_at TEXT,
-                updated_at TEXT,
-                tags TEXT
+                updated_at TEXT
             );
         """)
 
@@ -93,7 +85,8 @@ class DatabaseHelper:
             );
         """)
 
-        cursor.execute("PRAGMA user_version = 1;")
+    def migration_v2(self, cursor):
+        pass
 
     def _initialize_database(self):
         with self._lock:
@@ -112,32 +105,27 @@ class DatabaseHelper:
         updated_at: str,
         tags: Optional[str]
     ):
-        password_bytes = bytearray(password.encode())
-        encrypted_password = self.crypto.encrypt(password_bytes)
-        secure_zero_bytes(password_bytes)
+        payload = {
+            "title": title,
+            "username": username,
+            "password": password,
+            "url": url,
+            "notes": notes,
+            "tags": tags,
+        }
 
-        notes_bytes = bytearray(notes.encode()) if notes else None
-        encrypted_notes = self.crypto.encrypt(notes_bytes) if notes_bytes else None
-
-        if notes_bytes:
-            secure_zero_bytes(notes_bytes)
+        encrypted_data = self.crypto.encrypt(payload)
 
         with self._lock:
             with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO vault_entries
-                    (title, username, encrypted_password, url, notes, created_at, updated_at, tags)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    INSERT INTO vault_entries (encrypted_data, created_at, updated_at)
+                    VALUES (?, ?, ?);
                 """, (
-                    title,
-                    username,
-                    encrypted_password,
-                    url,
-                    encrypted_notes,
+                    encrypted_data,
                     created_at,
-                    updated_at,
-                    tags
+                    updated_at
                 ))
 
     def get_entry(self, entry_id: int):
@@ -145,8 +133,7 @@ class DatabaseHelper:
             with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, title, username, encrypted_password, url, notes,
-                           created_at, updated_at, tags
+                    SELECT id, encrypted_data, created_at, updated_at
                     FROM vault_entries
                     WHERE id = ?;
                 """, (entry_id,))
@@ -155,24 +142,11 @@ class DatabaseHelper:
         if not row:
             return None
 
-        decrypted_password_bytes = bytearray(self.crypto.decrypt(row[3]))
-        decrypted_password = decrypted_password_bytes.decode()
-        secure_zero_bytes(decrypted_password_bytes)
-
-        decrypted_notes_bytes = bytearray(self.crypto.decrypt(row[5])) if row[5] else None
-        decrypted_notes = decrypted_notes_bytes.decode() if decrypted_notes_bytes else None
-
-        if decrypted_notes_bytes:
-            secure_zero_bytes(decrypted_notes_bytes)
+        decrypted_data = self.crypto.decrypt(row[1])
 
         return {
             "id": row[0],
-            "title": row[1],
-            "username": row[2],
-            "password": decrypted_password,
-            "url": row[4],
-            "notes": decrypted_notes,
-            "created_at": row[6],
-            "updated_at": row[7],
-            "tags": row[8],
+            **decrypted_data,
+            "created_at": row[2],
+            "updated_at": row[3],
         }
