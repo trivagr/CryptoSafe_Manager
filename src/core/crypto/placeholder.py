@@ -1,7 +1,13 @@
 import os
+import ctypes
 from src.core.crypto.abstract import EncryptionService
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+def secure_zero_bytes(data: bytearray):
+    length = len(data)
+    ptr = (ctypes.c_char * length).from_buffer(data)
+    for i in range(length):
+        ptr[i] = 0
 
 class AES256EncryptionService(EncryptionService):
 
