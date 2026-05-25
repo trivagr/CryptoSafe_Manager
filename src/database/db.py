@@ -2,17 +2,17 @@ import sqlite3
 import threading
 from pathlib import Path
 from typing import Optional
-from src.core.crypto.abstract import EncryptionService
 from contextlib import contextmanager
+
+from src.core.crypto.abstract import EncryptionService
 from src.core.crypto.placeholder import secure_zero_bytes
 
 
 class DatabaseHelper:
 
-    def __init__(self, db_path: Path, crypto: EncryptionService, key: bytes):
+    def __init__(self, db_path: Path, crypto: EncryptionService):
         self.db_path = db_path
         self.crypto = crypto
-        self.key = key
         self._lock = threading.Lock()
 
         self._initialize_database()
@@ -31,7 +31,7 @@ class DatabaseHelper:
             conn.close()
 
     def get_database_version(self, cursor):
-        cursor.execute("""PRAGMA user_version;""")
+        cursor.execute("PRAGMA user_version;")
         return cursor.fetchone()[0]
 
     def migrate_database(self, cursor):
@@ -39,59 +39,59 @@ class DatabaseHelper:
 
         if version < 1:
             self.migration_v1(cursor)
-            cursor.execute("""PRAGMA user_version = 1;""")
+            cursor.execute("PRAGMA user_version = 1;")
             version = 1
 
         if version < 2:
             self.migration_v2(cursor)
-            cursor.execute("""PRAGMA user_version = 2;""")
+            cursor.execute("PRAGMA user_version = 2;")
             version = 2
 
     def migration_v1(self, cursor):
         cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS vault_entries (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                title TEXT NOT NULL,
-                                username TEXT,
-                                encrypted_password BLOB NOT NULL,
-                                url TEXT,
-                                notes BLOB,
-                                created_at TEXT,
-                                updated_at TEXT,
-                                tags TEXT
-                            );
-                        """)
+            CREATE TABLE IF NOT EXISTS vault_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                username TEXT,
+                encrypted_password BLOB NOT NULL,
+                url TEXT,
+                notes BLOB,
+                created_at TEXT,
+                updated_at TEXT,
+                tags TEXT
+            );
+        """)
 
         cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS audit_log (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                action TEXT,
-                                timestamp TEXT,
-                                entry_id INTEGER,
-                                details TEXT,
-                                signature TEXT
-                            );
-                        """)
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT,
+                timestamp TEXT,
+                entry_id INTEGER,
+                details TEXT,
+                signature TEXT
+            );
+        """)
 
         cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS settings (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                setting_key TEXT UNIQUE,
-                                setting_value TEXT,
-                                encrypted INTEGER DEFAULT 0
-                            );
-                        """)
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setting_key TEXT UNIQUE,
+                setting_value TEXT,
+                encrypted INTEGER DEFAULT 0
+            );
+        """)
 
         cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS key_store (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                key_type TEXT,
-                                key_data BLOB,
-                                params TEXT,
-                                version INTEGER,
-                                created_at TIMESTAMP
-                            );
-                        """)
+            CREATE TABLE IF NOT EXISTS key_store (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_type TEXT,
+                key_data BLOB,
+                params TEXT,
+                version INTEGER,
+                created_at TIMESTAMP
+            );
+        """)
 
         cursor.execute("PRAGMA user_version = 1;")
 
@@ -99,7 +99,6 @@ class DatabaseHelper:
         with self._lock:
             with self._connection() as conn:
                 cursor = conn.cursor()
-
                 self.migrate_database(cursor)
 
     def add_entry(
@@ -114,11 +113,12 @@ class DatabaseHelper:
         tags: Optional[str]
     ):
         password_bytes = bytearray(password.encode())
-        encrypted_password = self.crypto.encrypt(password_bytes, self.key)
+        encrypted_password = self.crypto.encrypt(password_bytes)
         secure_zero_bytes(password_bytes)
 
         notes_bytes = bytearray(notes.encode()) if notes else None
-        encrypted_notes = self.crypto.encrypt(notes_bytes, self.key) if notes_bytes else None
+        encrypted_notes = self.crypto.encrypt(notes_bytes) if notes_bytes else None
+
         if notes_bytes:
             secure_zero_bytes(notes_bytes)
 
@@ -155,12 +155,13 @@ class DatabaseHelper:
         if not row:
             return None
 
-        decrypted_password_bytes = bytearray(self.crypto.decrypt(row[3], self.key))
+        decrypted_password_bytes = bytearray(self.crypto.decrypt(row[3]))
         decrypted_password = decrypted_password_bytes.decode()
         secure_zero_bytes(decrypted_password_bytes)
 
-        decrypted_notes_bytes = bytearray(self.crypto.decrypt(row[5], self.key)) if row[5] else None
+        decrypted_notes_bytes = bytearray(self.crypto.decrypt(row[5])) if row[5] else None
         decrypted_notes = decrypted_notes_bytes.decode() if decrypted_notes_bytes else None
+
         if decrypted_notes_bytes:
             secure_zero_bytes(decrypted_notes_bytes)
 

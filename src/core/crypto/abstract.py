@@ -11,5 +11,5 @@ class EncryptionService(ABC):
         pass
 
     @abstractmethod
-    def decrypt(self, cyphertext : bytes) -> bytes:
+    def decrypt(self, ciphertext : bytes) -> bytes:
         pass
