@@ -50,8 +50,7 @@ class DatabaseHelper:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 encrypted_data BLOB NOT NULL,
                 created_at TEXT,
-                updated_at TEXT,
-                tags TEXT
+                updated_at TEXT
             );
         """)
 

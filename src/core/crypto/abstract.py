@@ -7,7 +7,7 @@ class EncryptionService(ABC):
         self._key_manager = key_manager
 
     @abstractmethod
-    def encrypt(self, data : bytes) -> bytes:
+    def encrypt(self, data : dict) -> bytes:
         pass
 
     @abstractmethod
