@@ -117,14 +117,6 @@ class DatabaseHelper:
                 "PRAGMA user_version = 1;"
             )
 
-        if version < 2:
-
-            self.migration_v2(cursor)
-
-            cursor.execute(
-                "PRAGMA user_version = 2;"
-            )
-
     def migration_v1(self, cursor):
 
         cursor.execute("""
@@ -170,18 +162,12 @@ class DatabaseHelper:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS key_store (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_type TEXT,
-                key_data BLOB,
-                salt BLOB,
-                hash TEXT,
-                params TEXT,
+                key_type TEXT NOT NULL,
+                key_data BLOB NOT NULL,
                 version INTEGER DEFAULT 1,
                 created_at TIMESTAMP
             );
         """)
-
-    def migration_v2(self, cursor):
-        pass
 
     def _initialize_database(self):
 
@@ -275,20 +261,29 @@ class DatabaseHelper:
 
     def get_active_key(self):
 
-        cursor = self.execute("""
-            SELECT salt, hash
+        salt_cursor = self.execute("""
+            SELECT key_data
             FROM key_store
-            WHERE key_type = 'master_key'
+            WHERE key_type = 'enc_salt'
             ORDER BY version DESC
             LIMIT 1
         """)
 
-        row = cursor.fetchone()
+        hash_cursor = self.execute("""
+            SELECT key_data
+            FROM key_store
+            WHERE key_type = 'auth_hash'
+            ORDER BY version DESC
+            LIMIT 1
+        """)
 
-        if not row:
-            raise ValueError("Master key not found")
+        salt_row = salt_cursor.fetchone()
+        hash_row = hash_cursor.fetchone()
+
+        if not salt_row or not hash_row:
+            raise ValueError("Key data missing")
 
         return {
-            "salt": row[0],
-            "hash": row[1]
+            "salt": salt_row[0],
+            "hash": hash_row[0].decode()
         }
