@@ -1,32 +1,39 @@
-import ctypes
+import os
 from src.core.crypto.abstract import EncryptionService
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-def secure_zero_bytes(data: bytearray):
-    length = len(data)
-    ptr = (ctypes.c_char * length).from_buffer(data)
-    for i in range(length):
-        ptr[i] = 0
 
-class AES256Placeholder(EncryptionService):
+class AES256EncryptionService(EncryptionService):
+
+    NONCE_SIZE = 12
 
     def encrypt(self, data: bytes) -> bytes:
-        return self._key_manager.limited_use_key(lambda key: self.xor(data, key))
 
-    def decrypt(self, ciphertext: bytes) -> bytes:
-        return self._key_manager.limited_use_key(lambda key: self.xor(ciphertext, key))
+        key = self._key_manager.get_key()
 
-    def xor(self, data: bytes, key: bytes ) -> bytes:
+        nonce = os.urandom(self.NONCE_SIZE)
 
-        data_bytes = bytearray(data)
-        key_bytes = bytearray(key)
-        result_data = bytearray()
+        aesgcm = AESGCM(key)
 
-        key_pos = 0
-        for b in data_bytes:
-            result_data.append(b ^ key_bytes[key_pos])
-            key_pos = (key_pos + 1) % len(key_bytes)
+        ciphertext = aesgcm.encrypt(
+            nonce=nonce,
+            data=data,
+            associated_data=None
+        )
 
-        secure_zero_bytes(data_bytes)
-        secure_zero_bytes(key_bytes)
+        return nonce + ciphertext
 
-        return bytes(result_data)
+    def decrypt(self, encrypted: bytes) -> bytes:
+
+        key = self._key_manager.get_key()
+
+        nonce = encrypted[:self.NONCE_SIZE]
+        ciphertext = encrypted[self.NONCE_SIZE:]
+
+        aesgcm = AESGCM(key)
+
+        return aesgcm.decrypt(
+            nonce=nonce,
+            data=ciphertext,
+            associated_data=None
+        )
