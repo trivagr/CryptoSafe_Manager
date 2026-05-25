@@ -1,10 +1,13 @@
+import json
 import threading
-import time
+from datetime import datetime, timezone
+
 from src.core.crypto.password_validator import validate_password
 from src.core.crypto.rotation_worker import RotationWorker
 
 
 class PasswordChange:
+
     def __init__(self, key_manager, key_deriver, db_helper):
         self.key_manager = key_manager
         self.key_deriver = key_deriver
@@ -25,9 +28,11 @@ class PasswordChange:
         on_done=None,
         on_error=None
     ):
+
         with self._state_lock:
             if self.thread and self.thread.is_alive():
                 raise ValueError("Rotation already in progress")
+
             self._status = "running"
 
         record = self.db_helper.get_active_key()
@@ -35,13 +40,14 @@ class PasswordChange:
         salt = record["salt"]
         stored_hash = record["hash"]
 
-        if not self.key_manager.unlock(old_password, stored_hash, salt):
-            raise ValueError("Auth failed")
+        self.key_manager.unlock(old_password, stored_hash, salt)
 
         if not validate_password(new_password):
+            self.key_manager.lock()
             raise ValueError("Weak password")
 
         if new_password != confirm_password:
+            self.key_manager.lock()
             raise ValueError("Passwords do not match")
 
         old_key = self.key_manager.get_key()
@@ -49,21 +55,33 @@ class PasswordChange:
         new_salt = self.key_deriver.salt_generate()
         new_key = self.key_deriver.derive(new_password, new_salt)
 
-        self.worker = RotationWorker(self.db_helper, self.db_helper.crypto)
+        self.worker = RotationWorker(
+            self.db_helper,
+            self.db_helper.crypto
+        )
+
         self.worker.on_progress = on_progress
 
         def job():
-            try:
-                self.key_manager.lock()
 
+            transaction_started = False
+
+            try:
                 self.db_helper.begin()
+                transaction_started = True
 
                 self.worker.run(old_key, new_key)
 
                 new_hash = self.key_deriver.hash_password(new_password)
-                self._update_key_store(new_hash, new_salt)
+
+                self._update_key_store(
+                    new_hash,
+                    new_salt
+                )
 
                 self.db_helper.commit()
+
+                self.key_manager.lock()
 
                 with self._state_lock:
                     self._status = "done"
@@ -72,9 +90,23 @@ class PasswordChange:
                     on_done(new_hash, new_salt)
 
             except Exception as e:
-                self.db_helper.rollback()
 
-                self.key_manager.unlock(old_password, stored_hash, salt)
+                if transaction_started:
+                    self.db_helper.rollback()
+
+                try:
+                    self.key_manager.lock()
+                except Exception:
+                    pass
+
+                try:
+                    self.key_manager.unlock(
+                        old_password,
+                        stored_hash,
+                        salt
+                    )
+                except Exception:
+                    pass
 
                 with self._state_lock:
                     self._status = "failed"
@@ -83,18 +115,30 @@ class PasswordChange:
                     on_error(e)
 
             finally:
+                del old_key
+                del new_key
+
                 self.clean_up()
 
-        self.thread = threading.Thread(target=job, daemon=True)
+        self.thread = threading.Thread(
+            target=job,
+            daemon=True
+        )
+
         self.thread.start()
 
     def clean_up(self):
+
         with self._state_lock:
             self.worker = None
             self.thread = None
-            self._status = "idle"
 
-    def _update_key_store(self, new_hash, new_salt):
+    def _update_key_store(
+        self,
+        new_hash,
+        new_salt
+    ):
+
         params = {
             "type": "argon2_pbkdf2",
             "active": True
@@ -102,11 +146,16 @@ class PasswordChange:
 
         self.db_helper.execute("""
             UPDATE key_store
-            SET salt = ?, hash = ?, params = ?, created_at = ?, version = version + 1
+            SET
+                salt = ?,
+                hash = ?,
+                params = ?,
+                created_at = ?,
+                version = version + 1
             WHERE key_type = 'master_key'
         """, (
             new_salt,
             new_hash,
-            str(params),
-            time.time()
+            json.dumps(params),
+            datetime.now(timezone.utc).isoformat()
         ))
