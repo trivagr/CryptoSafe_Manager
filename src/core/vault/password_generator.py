@@ -1,13 +1,11 @@
 import secrets
 from collections import deque
-from typing import Optional
 from zxcvbn import zxcvbn
 from src.core.config import ConfigManager
 
 
 
 class PasswordGenerator:
-    config = ConfigManager()
 
     LOWER = "abcdefghijklmnopqrstuvwxyz"
     UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -17,17 +15,19 @@ class PasswordGenerator:
     AMBIGUOUS = set("lI10O")
 
     def __init__(self):
+        self.config = ConfigManager()
         self.history = deque(maxlen=20)
 
 
     def generate(
         self,
-        length: int = config.password_generator["length"],
+        length: int = 0,
         use_lower: bool = True,
         use_upper: bool = True,
         use_digits: bool = True,
         use_symbols: bool = True
     ) -> str:
+        length = length or self.config.password_generator["length"]
 
         if not (8 <= length <= 64):
             raise ValueError("Length must be between 8 and 64")
@@ -63,7 +63,7 @@ class PasswordGenerator:
         if password in self.history:
             return self.generate(length, use_lower, use_upper, use_digits, use_symbols)
 
-        score = zxcvbn(password)["score"]
+        score = zxcvbn(password).get("score", 0)
         if score < 3:
             return self.generate(length, use_lower, use_upper, use_digits, use_symbols)
 
