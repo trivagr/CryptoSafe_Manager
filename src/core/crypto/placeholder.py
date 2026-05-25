@@ -25,7 +25,11 @@ class AES256EncryptionService(EncryptionService):
         package = {
             "version": self.VERSION,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "payload": data
+            "title": data["title"],
+            "username": data["username"],
+            "password": data["password"],
+            "url": data.get("url"),
+            "notes": data.get("notes"),
         }
 
         plaintext = json.dumps(
