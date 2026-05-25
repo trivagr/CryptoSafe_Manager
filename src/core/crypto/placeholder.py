@@ -1,5 +1,7 @@
 import os
 import ctypes
+import json
+from datetime import datetime, timezone
 from src.core.crypto.abstract import EncryptionService
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -12,34 +14,57 @@ def secure_zero_bytes(data: bytearray):
 class AES256EncryptionService(EncryptionService):
 
     NONCE_SIZE = 12
+    VERSION = 1
 
-    def encrypt(self, data: bytes) -> bytes:
+    def encrypt(self, data: dict) -> bytes:
 
         key = self._key_manager.get_key()
 
         nonce = os.urandom(self.NONCE_SIZE)
 
+        package = {
+            "version": self.VERSION,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": data
+        }
+
+        plaintext = json.dumps(
+            package,
+            sort_keys=True,
+            separators=(",", ":")
+        ).encode()
+
         aesgcm = AESGCM(key)
 
         ciphertext = aesgcm.encrypt(
             nonce=nonce,
-            data=data,
+            data=plaintext,
             associated_data=None
         )
 
         return nonce + ciphertext
 
-    def decrypt(self, encrypted: bytes) -> bytes:
+    def decrypt(self, encrypted: bytes) -> dict:
 
         key = self._key_manager.get_key()
+
+        if len(encrypted) <= self.NONCE_SIZE:
+            raise ValueError("Error")
 
         nonce = encrypted[:self.NONCE_SIZE]
         ciphertext = encrypted[self.NONCE_SIZE:]
 
         aesgcm = AESGCM(key)
 
-        return aesgcm.decrypt(
+        plaintext = aesgcm.decrypt(
             nonce=nonce,
             data=ciphertext,
             associated_data=None
         )
+
+        package = json.loads(plaintext.decode())
+
+        if package.get("version") != self.VERSION:
+            raise ValueError("Unsupported encryption version")
+
+        return package["payload"]
