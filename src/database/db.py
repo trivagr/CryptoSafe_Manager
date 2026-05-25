@@ -50,7 +50,8 @@ class DatabaseHelper:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 encrypted_data BLOB NOT NULL,
                 created_at TEXT,
-                updated_at TEXT
+                updated_at TEXT,
+                tags TEXT
             );
         """)
 
@@ -120,12 +121,13 @@ class DatabaseHelper:
             with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO vault_entries (encrypted_data, created_at, updated_at)
-                    VALUES (?, ?, ?);
+                    INSERT INTO vault_entries (encrypted_data, created_at, updated_at, tags)
+                    VALUES (?, ?, ?, ?);
                 """, (
                     encrypted_data,
                     created_at,
-                    updated_at
+                    updated_at,
+                    tags
                 ))
 
     def get_entry(self, entry_id: int):
@@ -133,7 +135,7 @@ class DatabaseHelper:
             with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, encrypted_data, created_at, updated_at
+                    SELECT id, encrypted_data, created_at, updated_at, tags
                     FROM vault_entries
                     WHERE id = ?;
                 """, (entry_id,))
@@ -149,4 +151,5 @@ class DatabaseHelper:
             **decrypted_data,
             "created_at": row[2],
             "updated_at": row[3],
+            "tags" : row[4]
         }

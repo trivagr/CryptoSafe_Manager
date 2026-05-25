@@ -30,6 +30,7 @@ class AES256EncryptionService(EncryptionService):
             "password": data["password"],
             "url": data.get("url"),
             "notes": data.get("notes"),
+            "category": data.get("category"),
         }
 
         plaintext = json.dumps(
