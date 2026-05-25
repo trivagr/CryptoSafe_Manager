@@ -9,8 +9,11 @@ class KeyManager:
         self._unlocked = False
 
     def unlock(self, password, stored_hash, salt):
+        if self._unlocked:
+            raise RuntimeError("Already unlocked")
+
         if not self.hashing.password_verify(password, stored_hash):
-            return False
+            raise ValueError("Invalid login/password")
 
         key = self.hashing.derive(password, salt)
 
@@ -26,4 +29,10 @@ class KeyManager:
     def get_key(self):
         if not self._unlocked:
             raise ValueError("Locked")
-        return self.storage.get_key()
+
+        key = self.storage.get_key()
+
+        if key is None:
+            raise RuntimeError("No key  ")
+
+        return key
