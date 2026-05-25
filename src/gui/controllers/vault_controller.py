@@ -5,16 +5,10 @@ class VaultController:
         self.model = model
 
     def refresh(self):
-        self.model.reload()
+        data = self.service.get_all()
+        self.model.load(data)
 
-    def search(self, text: str):
-        if not text:
-            self.model.reload()
-            return
-
-        ids = self.service.search(text)
-        self.model.rows = [
-            r for r in self.service.get_all_entries()
-            if r["id"] in ids
-        ]
-        self.model.layoutChanged.emit()
+    def search(self, text):
+        data = self.service.get_all()
+        filtered = [x for x in data if text.lower() in str(x).lower()]
+        self.model.load(filtered)

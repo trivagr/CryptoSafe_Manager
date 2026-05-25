@@ -19,7 +19,7 @@ class KeyHashing:
             salt_len=config.argon2["salt_len"],
             type=Type.ID
         )
-        self.iterations = config.pbkdf2["pbkdf2_iterations"]
+        self.iterations = config.pbkdf2["iterations"]
 
 
 

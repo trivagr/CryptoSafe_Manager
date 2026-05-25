@@ -1,8 +1,12 @@
 import time
 import threading
-from src.core.crypto.placeholder import secure_zero_bytes
+import ctypes
 
-
+def secure_zero_bytes(data: bytearray):
+    length = len(data)
+    ptr = (ctypes.c_char * length).from_buffer(data)
+    for i in range(length):
+        ptr[i] = 0
 
 class KeyStorage:
     def __init__(self, timeout: int = 3600):

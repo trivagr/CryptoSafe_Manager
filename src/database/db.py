@@ -3,6 +3,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 from contextlib import contextmanager
+import hashlib
 
 from src.core.crypto.abstract import EncryptionService
 
@@ -18,6 +19,9 @@ class DatabaseHelper:
 
         self._initialize_database()
 
+    # -------------------------
+    # CONNECTION
+    # -------------------------
     @contextmanager
     def _connection(self):
         conn = None
@@ -42,6 +46,9 @@ class DatabaseHelper:
             if conn:
                 conn.close()
 
+    # -------------------------
+    # TRANSACTIONS
+    # -------------------------
     def begin(self):
         with self._lock:
             if self._transaction_conn is not None:
@@ -73,6 +80,9 @@ class DatabaseHelper:
             self._transaction_conn.close()
             self._transaction_conn = None
 
+    # -------------------------
+    # EXECUTE
+    # -------------------------
     def execute(self, query: str, params: tuple = (), fetch: bool = True):
         with self._lock:
             if self._transaction_conn is not None:
@@ -85,6 +95,9 @@ class DatabaseHelper:
                 cur.execute(query, params)
                 return cur.fetchall() if fetch else cur.lastrowid
 
+    # -------------------------
+    # MIGRATIONS
+    # -------------------------
     def _get_version(self, cursor) -> int:
         cursor.execute("PRAGMA user_version;")
         v = cursor.fetchone()[0]
@@ -126,6 +139,14 @@ class DatabaseHelper:
             );
         """)
 
+        # AUTH TABLE 👇
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                password_hash TEXT NOT NULL
+            );
+        """)
+
         cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS vault_entries_fts USING fts5(
                 title,
@@ -150,7 +171,7 @@ class DatabaseHelper:
             ON vault_entries(tags);
         """)
 
-    def migrate_database(self, cursor,):
+    def migrate_database(self, cursor):
         version = self._get_version(cursor)
 
         if version < 1:
@@ -168,6 +189,39 @@ class DatabaseHelper:
             with self._connection() as conn:
                 self.migrate_database(conn.cursor())
 
+    # -------------------------
+    # AUTH SYSTEM 🔐
+    # -------------------------
+    def _hash(self, password: str) -> str:
+        return hashlib.sha256(password.encode()).hexdigest()
+
+    def set_master_password(self, password: str):
+        hashed = self._hash(password)
+
+        with self._connection() as conn:
+            cur = conn.cursor()
+
+            cur.execute("DELETE FROM users")
+            cur.execute("INSERT INTO users (password_hash) VALUES (?)", (hashed,))
+
+    def check_master_password(self, password: str) -> bool:
+        hashed = self._hash(password)
+
+        with self._connection() as conn:
+            cur = conn.cursor()
+
+            row = cur.execute(
+                "SELECT password_hash FROM users LIMIT 1"
+            ).fetchone()
+
+            if not row:
+                return False
+
+            return row[0] == hashed
+
+    # -------------------------
+    # VAULT OPS
+    # -------------------------
     def add_entry(self, title, username, password, url,
                   notes, category, created_at, updated_at, tags):
 
@@ -183,25 +237,12 @@ class DatabaseHelper:
 
         encrypted = self.crypto.encrypt(payload)
 
-        with self._lock:
-            with self._connection() as conn:
-                cur = conn.cursor()
+        with self._connection() as conn:
+            cur = conn.cursor()
 
-                cur.execute("""
-                    INSERT INTO vault_entries (
-                        encrypted_data,
-                        title,
-                        username,
-                        url,
-                        notes,
-                        category,
-                        created_at,
-                        updated_at,
-                        tags
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,(
-                    encrypted,
+            cur.execute("""
+                INSERT INTO vault_entries (
+                    encrypted_data,
                     title,
                     username,
                     url,
@@ -210,30 +251,31 @@ class DatabaseHelper:
                     created_at,
                     updated_at,
                     tags
-                ))
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                encrypted,
+                title,
+                username,
+                url,
+                notes,
+                category,
+                created_at,
+                updated_at,
+                tags
+            ))
 
-                entry_id = cur.lastrowid
-
-                cur.execute("""
-                    INSERT INTO vault_entries_fts (
-                        rowid, title, username, url, notes, category
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    entry_id,
-                    title,
-                    username,
-                    url,
-                    notes,
-                    category
-                ))
-
-                return entry_id
+            return cur.lastrowid
 
     def delete_entry(self, entry_id: int):
-        with self._lock:
-            with self._connection() as conn:
-                cur = conn.cursor()
+        with self._connection() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM vault_entries WHERE id = ?", (entry_id,))
 
-                cur.execute("DELETE FROM vault_entries WHERE id = ?", (entry_id,))
-                cur.execute("DELETE FROM vault_entries_fts WHERE rowid = ?",(entry_id,))
+    def get_all(self):
+        with self._connection() as conn:
+            cur = conn.cursor()
+            return cur.execute("""
+                SELECT id, title, username, url, notes, category
+                FROM vault_entries
+            """).fetchall()
