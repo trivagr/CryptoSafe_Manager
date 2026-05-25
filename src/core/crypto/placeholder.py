@@ -72,4 +72,4 @@ class AES256EncryptionService(EncryptionService):
         if package.get("version") != self.VERSION:
             raise ValueError("Unsupported encryption version")
 
-        return package["payload"]
+        return package
