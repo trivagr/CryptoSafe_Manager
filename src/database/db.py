@@ -3,152 +3,277 @@ import threading
 from pathlib import Path
 from typing import Optional
 from contextlib import contextmanager
-import hashlib
 
 from src.core.crypto.abstract import EncryptionService
 
 
 class DatabaseHelper:
 
-    def __init__(self, db_path: Path, crypto: EncryptionService):
+    def __init__(
+            self,
+            db_path: Path,
+            crypto: EncryptionService
+    ):
+
         self.db_path = db_path
+
         self.crypto = crypto
 
         self._lock = threading.RLock()
-        self._transaction_conn: Optional[sqlite3.Connection] = None
+
+        self._transaction_conn: Optional[
+            sqlite3.Connection
+        ] = None
 
         self._initialize_database()
 
-    # -------------------------
+    # =====================================================
     # CONNECTION
-    # -------------------------
+    # =====================================================
+
     @contextmanager
     def _connection(self):
+
         conn = None
 
         with self._lock:
+
             if self._transaction_conn is not None:
+
                 yield self._transaction_conn
+
                 return
 
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            conn.execute("PRAGMA foreign_keys = ON;")
-            conn.execute("PRAGMA journal_mode=WAL;")
+            conn = sqlite3.connect(
+                self.db_path,
+                check_same_thread=False
+            )
+
+            conn.execute(
+                "PRAGMA foreign_keys = ON;"
+            )
+
+            conn.execute(
+                "PRAGMA journal_mode=WAL;"
+            )
 
         try:
+
             yield conn
+
             conn.commit()
+
         except Exception:
+
             if conn:
                 conn.rollback()
+
             raise
+
         finally:
+
             if conn:
                 conn.close()
 
-    # -------------------------
+    # =====================================================
     # TRANSACTIONS
-    # -------------------------
+    # =====================================================
+
     def begin(self):
+
         with self._lock:
+
             if self._transaction_conn is not None:
-                raise RuntimeError("Transaction already started")
+                raise RuntimeError(
+                    "Transaction already started"
+                )
 
             self._transaction_conn = sqlite3.connect(
                 self.db_path,
                 check_same_thread=False
             )
-            self._transaction_conn.execute("PRAGMA foreign_keys = ON;")
-            self._transaction_conn.execute("PRAGMA journal_mode=WAL;")
-            self._transaction_conn.execute("BEGIN")
+
+            self._transaction_conn.execute(
+                "PRAGMA foreign_keys = ON;"
+            )
+
+            self._transaction_conn.execute(
+                "PRAGMA journal_mode=WAL;"
+            )
+
+            self._transaction_conn.execute(
+                "BEGIN"
+            )
 
     def commit(self):
+
         with self._lock:
+
             if self._transaction_conn is None:
-                raise RuntimeError("No active transaction")
+                raise RuntimeError(
+                    "No active transaction"
+                )
 
             self._transaction_conn.commit()
+
             self._transaction_conn.close()
+
             self._transaction_conn = None
 
     def rollback(self):
+
         with self._lock:
+
             if self._transaction_conn is None:
-                raise RuntimeError("No active transaction")
+                raise RuntimeError(
+                    "No active transaction"
+                )
 
             self._transaction_conn.rollback()
+
             self._transaction_conn.close()
+
             self._transaction_conn = None
 
-    # -------------------------
+    # =====================================================
     # EXECUTE
-    # -------------------------
-    def execute(self, query: str, params: tuple = (), fetch: bool = True):
+    # =====================================================
+
+    def execute(
+            self,
+            query: str,
+            params: tuple = (),
+            fetch: bool = True
+    ):
+
         with self._lock:
+
             if self._transaction_conn is not None:
+
                 cur = self._transaction_conn.cursor()
+
                 cur.execute(query, params)
-                return cur.fetchall() if fetch else cur.lastrowid
+
+                return (
+                    cur.fetchall()
+                    if fetch
+                    else cur.lastrowid
+                )
 
             with self._connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, params)
-                return cur.fetchall() if fetch else cur.lastrowid
 
-    # -------------------------
+                cur = conn.cursor()
+
+                cur.execute(query, params)
+
+                return (
+                    cur.fetchall()
+                    if fetch
+                    else cur.lastrowid
+                )
+
+    # =====================================================
     # MIGRATIONS
-    # -------------------------
+    # =====================================================
+
     def _get_version(self, cursor) -> int:
-        cursor.execute("PRAGMA user_version;")
+
+        cursor.execute(
+            "PRAGMA user_version;"
+        )
+
         v = cursor.fetchone()[0]
+
         return v or 0
 
     def _migration_1(self, cursor):
+
+        # =============================================
+        # VAULT
+        # =============================================
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vault_entries (
+
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+
                 encrypted_data BLOB NOT NULL,
+
                 title TEXT,
                 username TEXT,
                 url TEXT,
                 notes TEXT,
                 category TEXT,
+
                 created_at TIMESTAMP,
+
                 updated_at TIMESTAMP,
+
                 tags TEXT
             );
         """)
 
+        # =============================================
+        # DELETED
+        # =============================================
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS deleted_entries (
+
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+
                 original_entry_id INTEGER,
+
                 encrypted_data BLOB NOT NULL,
+
                 deleted_at TIMESTAMP,
+
                 expires_at TIMESTAMP
             );
         """)
 
+        # =============================================
+        # KEY STORE
+        # =============================================
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS key_store (
+
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+
                 key_type TEXT NOT NULL,
+
                 key_data BLOB NOT NULL,
+
                 version INTEGER DEFAULT 1,
+
                 created_at TIMESTAMP
             );
         """)
 
-        # AUTH TABLE 👇
+        # =============================================
+        # USERS
+        # =============================================
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
+
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                password_hash TEXT NOT NULL
+
+                password_hash BLOB NOT NULL,
+
+                salt BLOB NOT NULL
             );
         """)
 
+        # =============================================
+        # FTS
+        # =============================================
+
         cursor.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS vault_entries_fts USING fts5(
+            CREATE VIRTUAL TABLE IF NOT EXISTS
+            vault_entries_fts USING fts5(
+
                 title,
                 url,
                 tags
@@ -156,74 +281,131 @@ class DatabaseHelper:
         """)
 
     def _migration_2(self, cursor):
+
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_vault_created_at
+            CREATE INDEX IF NOT EXISTS
+            idx_vault_created_at
             ON vault_entries(created_at);
         """)
 
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_vault_updated_at
+            CREATE INDEX IF NOT EXISTS
+            idx_vault_updated_at
             ON vault_entries(updated_at);
         """)
 
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_vault_tags
+            CREATE INDEX IF NOT EXISTS
+            idx_vault_tags
             ON vault_entries(tags);
         """)
 
     def migrate_database(self, cursor):
+
         version = self._get_version(cursor)
 
         if version < 1:
+
             self._migration_1(cursor)
+
             version = 1
-            cursor.execute("PRAGMA user_version = 1;")
+
+            cursor.execute(
+                "PRAGMA user_version = 1;"
+            )
 
         if version < 2:
+
             self._migration_2(cursor)
+
             version = 2
-            cursor.execute("PRAGMA user_version = 2;")
+
+            cursor.execute(
+                "PRAGMA user_version = 2;"
+            )
 
     def _initialize_database(self):
+
         with self._lock:
+
             with self._connection() as conn:
-                self.migrate_database(conn.cursor())
 
-    # -------------------------
-    # AUTH SYSTEM 🔐
-    # -------------------------
-    def _hash(self, password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+                self.migrate_database(
+                    conn.cursor()
+                )
 
-    def set_master_password(self, password: str):
-        hashed = self._hash(password)
+    # =====================================================
+    # AUTH
+    # =====================================================
+
+    def set_master_password(
+            self,
+            password_hash,
+            salt
+    ):
 
         with self._connection() as conn:
+
             cur = conn.cursor()
 
-            cur.execute("DELETE FROM users")
-            cur.execute("INSERT INTO users (password_hash) VALUES (?)", (hashed,))
+            cur.execute(
+                "DELETE FROM users"
+            )
 
-    def check_master_password(self, password: str) -> bool:
-        hashed = self._hash(password)
+            cur.execute(
+                """
+                INSERT INTO users (
+                    password_hash,
+                    salt
+                )
+                VALUES (?, ?)
+                """,
+                (
+                    password_hash,
+                    salt
+                )
+            )
+
+    def get_master_credentials(self):
 
         with self._connection() as conn:
+
             cur = conn.cursor()
 
             row = cur.execute(
-                "SELECT password_hash FROM users LIMIT 1"
+                """
+                SELECT
+                    password_hash,
+                    salt
+                FROM users
+                LIMIT 1
+                """
             ).fetchone()
 
             if not row:
-                return False
+                return None
 
-            return row[0] == hashed
+            return {
+                "password_hash": row[0],
+                "salt": row[1]
+            }
 
-    # -------------------------
+    # =====================================================
     # VAULT OPS
-    # -------------------------
-    def add_entry(self, title, username, password, url,
-                  notes, category, created_at, updated_at, tags):
+    # =====================================================
+
+    def add_entry(
+            self,
+            title,
+            username,
+            password,
+            url,
+            notes,
+            category,
+            created_at,
+            updated_at,
+            tags
+    ):
 
         payload = {
             "title": title,
@@ -235,22 +417,30 @@ class DatabaseHelper:
             "version": 1
         }
 
-        encrypted = self.crypto.encrypt(payload)
+        encrypted = self.crypto.encrypt(
+            payload
+        )
 
         with self._connection() as conn:
+
             cur = conn.cursor()
 
             cur.execute("""
                 INSERT INTO vault_entries (
+
                     encrypted_data,
+
                     title,
                     username,
                     url,
                     notes,
                     category,
+
                     created_at,
                     updated_at,
+
                     tags
+
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -268,14 +458,34 @@ class DatabaseHelper:
             return cur.lastrowid
 
     def delete_entry(self, entry_id: int):
+
         with self._connection() as conn:
+
             cur = conn.cursor()
-            cur.execute("DELETE FROM vault_entries WHERE id = ?", (entry_id,))
+
+            cur.execute(
+                """
+                DELETE FROM vault_entries
+                WHERE id = ?
+                """,
+                (entry_id,)
+            )
 
     def get_all(self):
+
         with self._connection() as conn:
+
             cur = conn.cursor()
+
             return cur.execute("""
-                SELECT id, title, username, url, notes, category
+                SELECT
+
+                    id,
+                    title,
+                    username,
+                    url,
+                    notes,
+                    category
+
                 FROM vault_entries
             """).fetchall()
