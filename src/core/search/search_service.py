@@ -1,113 +1,66 @@
-import re
-from typing import List, Dict
-
 from rapidfuzz import fuzz
+from collections import deque
+from src.database.db import DatabaseHelper
 
 
 class SearchService:
 
-    def __init__(self, entry_manager):
-        self.entry_manager = entry_manager
+    def __init__(self, db: DatabaseHelper):
+        self.db = db
+        self.history = deque(maxlen=10)
 
-        self._history = []
-        self._max_history = 10
+    def search(self, query: str):
+        query = query.strip()
 
-    def search(self, query: str) -> List[Dict]:
-
-        query = query.strip().lower()
         if not query:
             return []
 
-        self._add_to_history(query)
+        self.history.append(query)
 
-        parsed = self._parse_query(query)
+        fts_results = self.db.execute("""
+            SELECT rowid, title, username, url, notes
+            FROM vault_entries_fts
+            WHERE vault_entries_fts MATCH ?
+            LIMIT 50
+        """, (query,))
 
-        entries = self.entry_manager.get_all_entries()
+        if fts_results:
+            return self._format(fts_results)
+
+        all_rows = self.db.execute("""
+            SELECT id, encrypted_data
+            FROM vault_entries
+        """)
 
         results = []
 
-        for entry in entries:
-            if self._match(entry, parsed, query):
-                results.append(entry)
+        for row_id, enc in all_rows:
+            data = self.db.crypto.decrypt(enc)
 
-        results.sort(
-            key=lambda x: self._score(x, query),
-            reverse=True
-        )
-
-        return results
-
-    def get_history(self) -> List[str]:
-        return list(self._history)
-
-    def _parse_query(self, query: str) -> dict:
-
-        filters = {}
-
-        pattern = r'(\w+):"([^"]+)"'
-        matches = re.findall(pattern, query)
-
-        for key, value in matches:
-            filters[key] = value.lower()
-
-        cleaned = re.sub(pattern, "", query).strip()
-
-        return {
-            "filters": filters,
-            "text": cleaned
-        }
-
-    def _match(self, entry: dict, parsed: dict, raw_query: str) -> bool:
-
-        filters = parsed["filters"]
-        text = parsed["text"]
-
-        if "title" in filters:
-            if filters["title"] not in entry.get("title", "").lower():
-                return False
-
-        if "username" in filters:
-            if filters["username"] not in entry.get("username", "").lower():
-                return False
-
-        if "url" in filters:
-            if filters["url"] not in (entry.get("url") or "").lower():
-                return False
-
-        if "tag" in filters:
-            if filters["tag"] not in (entry.get("tags") or "").lower():
-                return False
-
-        if text:
             blob = " ".join([
-                entry.get("title", ""),
-                entry.get("username", ""),
-                entry.get("url", "") or "",
-                entry.get("notes", "") or ""
-            ]).lower()
+                data.get("title", ""),
+                data.get("username", ""),
+                data.get("url", ""),
+                data.get("notes", "")
+            ])
 
-            if text not in blob and fuzz.partial_ratio(text, blob) < 70:
-                return False
+            score = fuzz.token_sort_ratio(query, blob)
 
-        return True
+            if score > 60:
+                results.append((row_id, data, score))
 
-    def _score(self, entry: dict, query: str) -> int:
+        results.sort(key=lambda x: x[2], reverse=True)
 
-        blob = " ".join([
-            entry.get("title", ""),
-            entry.get("username", ""),
-            entry.get("url", "") or "",
-            entry.get("notes", "") or ""
-        ]).lower()
+        return [r[1] for r in results]
 
-        return int(fuzz.token_sort_ratio(query, blob))
-
-    def _add_to_history(self, query: str):
-
-        if query in self._history:
-            self._history.remove(query)
-
-        self._history.insert(0, query)
-
-        if len(self._history) > self._max_history:
-            self._history.pop()
+    def _format(self, rows):
+        return [
+            {
+                "id": r[0],
+                "title": r[1],
+                "username": r[2],
+                "url": r[3],
+                "notes": r[4],
+            }
+            for r in rows
+        ]
