@@ -2,6 +2,8 @@ import time
 from src.core.key_manager import KeyManager
 
 
+user_logged_in = None
+
 failed_attempts = 0
 last_login_time = None
 is_authenticated = False
@@ -20,7 +22,8 @@ def authenticate(password, stored_hash, salt):
     is_authenticated = True
     last_login_time = time.time()
 
-    print("UserLoggedIn")
+    if user_logged_in:
+        user_logged_in()
     return True
 
 
@@ -33,7 +36,6 @@ def logout():
     failed_attempts = 0
     last_login_time = None
 
-    print("UserLoggedOut")
 
 def shutdown():
     global is_authenticated, failed_attempts, last_login_time

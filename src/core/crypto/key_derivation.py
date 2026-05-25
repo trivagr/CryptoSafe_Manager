@@ -35,7 +35,7 @@ class KeyHashing:
         try:
             return self.hasher.verify(hashed_password, password)
         except:
-            secrets.compare_digest("a", "a")
+            secrets.compare_digest(os.urandom(32), os.urandom(32))
             return False
 
     def salt_generate(self) -> bytes:
