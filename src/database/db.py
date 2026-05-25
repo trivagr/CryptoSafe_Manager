@@ -106,12 +106,13 @@ class DatabaseHelper:
         tags: Optional[str]
     ):
         payload = {
+            "version": 1,
             "title": title,
             "username": username,
             "password": password,
             "url": url,
             "notes": notes,
-            "tags": tags,
+            "category": tags,
         }
 
         encrypted_data = self.crypto.encrypt(payload)
@@ -120,13 +121,16 @@ class DatabaseHelper:
             with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO vault_entries (encrypted_data, created_at, updated_at, tags)
-                    VALUES (?, ?, ?, ?);
+                    INSERT INTO vault_entries (
+                        encrypted_data,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?);
                 """, (
                     encrypted_data,
                     created_at,
-                    updated_at,
-                    tags
+                    updated_at
                 ))
 
     def get_entry(self, entry_id: int):
@@ -134,7 +138,7 @@ class DatabaseHelper:
             with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, encrypted_data, created_at, updated_at, tags
+                    SELECT id, encrypted_data, created_at, updated_at
                     FROM vault_entries
                     WHERE id = ?;
                 """, (entry_id,))
@@ -143,12 +147,14 @@ class DatabaseHelper:
         if not row:
             return None
 
-        decrypted_data = self.crypto.decrypt(row[1])
+        try:
+            decrypted_data = self.crypto.decrypt(row[1])
+        except Exception as e:
+            raise ValueError("Failed to decrypt vault entry") from e
 
         return {
             "id": row[0],
             **decrypted_data,
             "created_at": row[2],
             "updated_at": row[3],
-            "tags" : row[4]
         }
