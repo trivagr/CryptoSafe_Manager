@@ -1,4 +1,5 @@
-from PySide6.QtWidgets import QMainWindow, QTableView, QLineEdit, QToolBar, QAction
+from PySide6.QtWidgets import QMainWindow, QTableView, QLineEdit, QToolBar
+from PySide6.QtGui import QAction
 
 from src.gui.models.vault_table_model import VaultTableModel
 from src.gui.controllers.vault_controller import VaultController
