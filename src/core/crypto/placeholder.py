@@ -2,7 +2,9 @@ import os
 import ctypes
 import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from src.core.crypto.abstract import (
+    EncryptionService
+)
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 def secure_zero_bytes(data: bytearray):
@@ -10,9 +12,6 @@ def secure_zero_bytes(data: bytearray):
     ptr = (ctypes.c_char * length).from_buffer(data)
     for i in range(length):
         ptr[i] = 0
-
-if TYPE_CHECKING:
-    from src.core.crypto.abstract import EncryptionService
 
 class AES256EncryptionService(EncryptionService):
 

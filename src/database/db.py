@@ -27,10 +27,6 @@ class DatabaseHelper:
 
         self._initialize_database()
 
-    # =====================================================
-    # CONNECTION
-    # =====================================================
-
     @contextmanager
     def _connection(self):
 
@@ -74,10 +70,6 @@ class DatabaseHelper:
 
             if conn:
                 conn.close()
-
-    # =====================================================
-    # TRANSACTIONS
-    # =====================================================
 
     def begin(self):
 
@@ -135,10 +127,6 @@ class DatabaseHelper:
 
             self._transaction_conn = None
 
-    # =====================================================
-    # EXECUTE
-    # =====================================================
-
     def execute(
             self,
             query: str,
@@ -172,10 +160,6 @@ class DatabaseHelper:
                     else cur.lastrowid
                 )
 
-    # =====================================================
-    # MIGRATIONS
-    # =====================================================
-
     def _get_version(self, cursor) -> int:
 
         cursor.execute(
@@ -187,10 +171,6 @@ class DatabaseHelper:
         return v or 0
 
     def _migration_1(self, cursor):
-
-        # =============================================
-        # VAULT
-        # =============================================
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vault_entries (
@@ -213,10 +193,6 @@ class DatabaseHelper:
             );
         """)
 
-        # =============================================
-        # DELETED
-        # =============================================
-
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS deleted_entries (
 
@@ -231,10 +207,6 @@ class DatabaseHelper:
                 expires_at TIMESTAMP
             );
         """)
-
-        # =============================================
-        # KEY STORE
-        # =============================================
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS key_store (
@@ -251,10 +223,6 @@ class DatabaseHelper:
             );
         """)
 
-        # =============================================
-        # USERS
-        # =============================================
-
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
 
@@ -265,10 +233,6 @@ class DatabaseHelper:
                 salt BLOB NOT NULL
             );
         """)
-
-        # =============================================
-        # FTS
-        # =============================================
 
         cursor.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS
@@ -334,10 +298,6 @@ class DatabaseHelper:
                     conn.cursor()
                 )
 
-    # =====================================================
-    # AUTH
-    # =====================================================
-
     def set_master_password(
             self,
             password_hash,
@@ -389,10 +349,6 @@ class DatabaseHelper:
                 "password_hash": row[0],
                 "salt": row[1]
             }
-
-    # =====================================================
-    # VAULT OPS
-    # =====================================================
 
     def add_entry(
             self,

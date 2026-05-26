@@ -1,6 +1,4 @@
 import time
-from src.core.key_manager import KeyManager
-
 
 user_logged_in = None
 
@@ -8,45 +6,85 @@ failed_attempts = 0
 last_login_time = None
 is_authenticated = False
 
-key_manager = KeyManager()
 
+def authenticate(
+        key_manager,
+        password,
+        stored_hash,
+        salt
+):
+    global failed_attempts
+    global last_login_time
+    global is_authenticated
 
-def authenticate(password, stored_hash, salt):
-    global failed_attempts, last_login_time, is_authenticated
+    try:
 
-    if not key_manager.unlock(password, stored_hash, salt):
+        success = key_manager.unlock(
+            password,
+            stored_hash,
+            salt
+        )
+
+        if not success:
+
+            handle_failed_attempt()
+
+            return False
+
+    except:
+
         handle_failed_attempt()
+
         return False
 
     failed_attempts = 0
+
     is_authenticated = True
+
     last_login_time = time.time()
 
     if user_logged_in:
         user_logged_in()
+
     return True
 
 
-def logout():
-    global is_authenticated, failed_attempts, last_login_time
+def logout(
+        key_manager
+):
+
+    global is_authenticated
+    global failed_attempts
+    global last_login_time
 
     key_manager.lock()
 
     is_authenticated = False
+
     failed_attempts = 0
+
     last_login_time = None
 
 
-def shutdown():
-    global is_authenticated, failed_attempts, last_login_time
+def shutdown(
+        key_manager
+):
+
+    global is_authenticated
+    global failed_attempts
+    global last_login_time
+
     key_manager.lock()
 
     is_authenticated = False
+
     failed_attempts = 0
+
     last_login_time = None
 
 
 def handle_failed_attempt():
+
     global failed_attempts
 
     failed_attempts += 1
@@ -62,6 +100,7 @@ def handle_failed_attempt():
 
 
 def update_activity():
+
     global last_login_time
 
     last_login_time = time.time()

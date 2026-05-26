@@ -1,161 +1,128 @@
-import json
 import threading
-from datetime import datetime, timezone
 
-from src.core.crypto.password_validator import validate_password
-from src.core.crypto.rotation_worker import RotationWorker
+from src.core.crypto.password_validator import (
+    validate_password
+)
 
 
 class PasswordChange:
 
-    def __init__(self, key_manager, key_deriver, db_helper):
+    def __init__(
+            self,
+            key_manager,
+            key_deriver,
+            db_helper
+    ):
+
         self.key_manager = key_manager
         self.key_deriver = key_deriver
         self.db_helper = db_helper
 
-        self._status = "idle"
-        self._state_lock = threading.Lock()
+        self._state_lock = (threading.Lock())
 
-        self.worker = None
         self.thread = None
 
-    def change_password_async(
-        self,
-        old_password,
-        new_password,
-        confirm_password,
-        on_progress=None,
-        on_done=None,
-        on_error=None
-    ):
+    def change_password_async(self, old_password, new_password, confirm_password, on_progress=None, on_done=None, on_error=None):
 
-        with self._state_lock:
-            if self.thread and self.thread.is_alive():
-                raise ValueError("Rotation already in progress")
+        if self.thread and self.thread.is_alive():
 
-            self._status = "running"
+            raise ValueError(
+                "Password change already running"
+            )
 
-        record = self.db_helper.get_active_key()
+        credentials = (self.db_helper.get_master_credentials())
 
-        salt = record["salt"]
-        stored_hash = record["hash"]
+        if credentials is None:
 
-        self.key_manager.unlock(old_password, stored_hash, salt)
+            raise ValueError(
+                "Credentials not found"
+            )
+
+        stored_hash = (credentials["password_hash"])
+
+        valid = (self.key_manager.hashing.password_verify(old_password, stored_hash))
+
+        if not valid:
+
+            raise ValueError(
+                "Wrong password"
+            )
 
         if not validate_password(new_password):
-            self.key_manager.lock()
-            raise ValueError("Weak password")
 
-        if new_password != confirm_password:
-            self.key_manager.lock()
-            raise ValueError("Passwords do not match")
+            raise ValueError(
+                "Weak password"
+            )
 
-        old_key = self.key_manager.get_key()
+        if (new_password!=confirm_password):
 
-        new_salt = self.key_deriver.salt_generate()
-        new_key = self.key_deriver.derive(new_password, new_salt)
+            raise ValueError(
+                "Passwords do not match"
+            )
 
-        self.worker = RotationWorker(
-            self.db_helper,
-            self.db_helper.crypto
-        )
-
-        self.worker.on_progress = on_progress
+        old_key = (self.key_manager.get_key())
+        new_salt = (self.key_deriver.salt_generate())
+        new_key = (self.key_deriver.derive(new_password, new_salt))
 
         def job():
 
-            transaction_started = False
-
             try:
-                self.db_helper.begin()
-                transaction_started = True
 
-                self.worker.run(old_key, new_key)
-
-                new_hash = self.key_deriver.hash_password(new_password)
-
-                self._update_key_store(
-                    new_hash,
-                    new_salt
+                rows = (
+                    self.db_helper.execute(
+                        """
+                        SELECT id, encrypted_data
+                        FROM vault_entries
+                        """
+                    )
                 )
 
-                self.db_helper.commit()
+                total = len(rows)
+
+                for index, row in enumerate(rows):
+
+                    entry_id = row[0]
+                    encrypted = row[1]
+
+                    self.key_manager.storage.store_key(old_key)
+
+                    data = (self.db_helper.crypto.decrypt(encrypted))
+
+                    self.key_manager.storage.store_key(new_key)
+
+                    new_encrypted = (self.db_helper.crypto.encrypt(data))
+
+                    self.db_helper.execute(
+                        """
+                        UPDATE vault_entries
+                        SET encrypted_data=?
+                        WHERE id=?
+                        """,
+                        (new_encrypted, entry_id),
+                        fetch=False)
+
+                    if on_progress:
+                        percent = int(
+                            (index+1) / total * 100)
+                        on_progress(percent)
+
+                new_hash = (self.key_deriver.hash_password(new_password))
+
+                self.db_helper.set_master_password(new_hash, new_salt)
 
                 self.key_manager.lock()
-
-                with self._state_lock:
-                    self._status = "done"
+                self.key_manager.storage.store_key(new_key)
+                self.key_manager._unlocked = True
 
                 if on_done:
-                    on_done(new_hash, new_salt)
+                    on_done()
 
             except Exception as e:
-
-                if transaction_started:
-                    self.db_helper.rollback()
-
-                try:
-                    self.key_manager.lock()
-                except Exception:
-                    pass
-
-                try:
-                    self.key_manager.unlock(
-                        old_password,
-                        stored_hash,
-                        salt
-                    )
-                except Exception:
-                    pass
-
-                with self._state_lock:
-                    self._status = "failed"
+                import traceback
+                traceback.print_exc()
 
                 if on_error:
-                    on_error(e)
-
-            finally:
-                del old_key
-                del new_key
-
-                self.clean_up()
-
-        self.thread = threading.Thread(
-            target=job,
-            daemon=True
-        )
+                    on_error(str(e))
+        self.thread = threading.Thread(target=job, daemon=True)
 
         self.thread.start()
-
-    def clean_up(self):
-
-        with self._state_lock:
-            self.worker = None
-            self.thread = None
-
-    def _update_key_store(
-        self,
-        new_hash,
-        new_salt
-    ):
-
-        params = {
-            "type": "argon2_pbkdf2",
-            "active": True
-        }
-
-        self.db_helper.execute("""
-            UPDATE key_store
-            SET
-                salt = ?,
-                hash = ?,
-                params = ?,
-                created_at = ?,
-                version = version + 1
-            WHERE key_type = 'master_key'
-        """, (
-            new_salt,
-            new_hash,
-            json.dumps(params),
-            datetime.now(timezone.utc).isoformat()
-        ))
