@@ -7,12 +7,7 @@ last_login_time = None
 is_authenticated = False
 
 
-def authenticate(
-        key_manager,
-        password,
-        stored_hash,
-        salt
-):
+def authenticate(key_manager, password, stored_hash, salt):
     global failed_attempts
     global last_login_time
     global is_authenticated
@@ -49,9 +44,7 @@ def authenticate(
     return True
 
 
-def logout(
-        key_manager
-):
+def logout(key_manager):
 
     global is_authenticated
     global failed_attempts
@@ -66,9 +59,7 @@ def logout(
     last_login_time = None
 
 
-def shutdown(
-        key_manager
-):
+def shutdown(key_manager):
 
     global is_authenticated
     global failed_attempts
@@ -104,3 +95,12 @@ def update_activity():
     global last_login_time
 
     last_login_time = time.time()
+
+def session_expired(timeout_seconds):
+
+    global last_login_time
+
+    if last_login_time is None:
+        return False
+
+    return (time.time() - last_login_time) > timeout_seconds
