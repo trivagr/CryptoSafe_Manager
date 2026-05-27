@@ -1,0 +1,232 @@
+[33mcommit c473f2253960f096df0c914b28fc920bb02a1b10[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: trivagr <sh.ego.dan@gmail.com>
+Date:   Wed May 27 12:43:18 2026 +0300
+
+    sprint-3 tests
+
+[1mdiff --git a/src/core/crypto/password_validator.py b/src/core/crypto/password_validator.py[m
+[1mindex 1fa8a82..08cc8df 100644[m
+[1m--- a/src/core/crypto/password_validator.py[m
+[1m+++ b/src/core/crypto/password_validator.py[m
+[36m@@ -5,7 +5,15 @@[m [mcommon_patterns = {[m
+     "qwerty",[m
+     "111111",[m
+     "admin",[m
+[31m-    "12345"[m
+[32m+[m[32m    "12345",[m
+[32m+[m[32m    "222222",[m
+[32m+[m[32m    "333333",[m
+[32m+[m[32m    "444444",[m
+[32m+[m[32m    "555555",[m
+[32m+[m[32m    "666666",[m
+[32m+[m[32m    "777777",[m
+[32m+[m[32m    "888888",[m
+[32m+[m[32m    "999999"[m
+ }[m
+ [m
+ def validate_password(password: str) -> bool:[m
+[1mdiff --git a/tests/test_CRUD.py b/tests/test_CRUD.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..80054e5[m
+[1m--- /dev/null[m
+[1m+++ b/tests/test_CRUD.py[m
+[36m@@ -0,0 +1,44 @@[m
+[32m+[m[32mfrom datetime import datetime[m
+[32m+[m
+[32m+[m[32mfrom src.database.db import DatabaseHelper[m
+[32m+[m[32mfrom src.core.key_manager import KeyManager[m
+[32m+[m[32mfrom src.core.crypto.placeholder import AES256EncryptionService[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_crud_integration(tmp_path):[m
+[32m+[m
+[32m+[m[32m    key_manager=KeyManager()[m
+[32m+[m
+[32m+[m[32m    key_manager.storage.store_key(b"1"*32)[m
+[32m+[m
+[32m+[m[32m    key_manager._unlocked=True[m
+[32m+[m
+[32m+[m[32m    crypto=(AES256EncryptionService(key_manager))[m
+[32m+[m
+[32m+[m[32m    db=DatabaseHelper(tmp_path/"test.db", crypto)[m
+[32m+[m
+[32m+[m[32m    for i in range(100):[m
+[32m+[m
+[32m+[m[32m        db.add_entry([m
+[32m+[m[32m            title=f"site{i}",[m
+[32m+[m[32m            username="user",[m
+[32m+[m[32m            password="pass",[m
+[32m+[m[32m            url="url",[m
+[32m+[m[32m            notes="notes",[m
+[32m+[m[32m            category="test",[m
+[32m+[m[32m            created_at=datetime.now(),[m
+[32m+[m[32m            updated_at=datetime.now(),[m
+[32m+[m[32m            tags=""[m
+[32m+[m[32m        )[m
+[32m+[m
+[32m+[m[32m    rows=db.get_all()[m
+[32m+[m
+[32m+[m[32m    assert len(rows)==100[m
+[32m+[m
+[32m+[m[32m    for i in range(1,20):[m
+[32m+[m
+[32m+[m[32m        db.delete_entry(i)[m
+[32m+[m
+[32m+[m[32m    rows=db.get_all()[m
+[32m+[m
+[32m+[m[32m    assert len(rows)==81[m
+\ No newline at end of file[m
+[1mdiff --git a/tests/test_concurency.py b/tests/test_concurency.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..f1e6d39[m
+[1m--- /dev/null[m
+[1m+++ b/tests/test_concurency.py[m
+[36m@@ -0,0 +1,51 @@[m
+[32m+[m[32mimport threading[m
+[32m+[m[32mfrom datetime import datetime[m
+[32m+[m
+[32m+[m[32mfrom src.database.db import DatabaseHelper[m
+[32m+[m[32mfrom src.core.key_manager import KeyManager[m
+[32m+[m[32mfrom src.core.crypto.placeholder import AES256EncryptionService[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_concurrency(tmp_path):[m
+[32m+[m
+[32m+[m[32m    manager=KeyManager()[m
+[32m+[m
+[32m+[m[32m    manager.storage.store_key(b"1"*32)[m
+[32m+[m
+[32m+[m[32m    manager._unlocked=True[m
+[32m+[m
+[32m+[m[32m    crypto=(AES256EncryptionService(manager))[m
+[32m+[m
+[32m+[m[32m    db=DatabaseHelper(tmp_path/"concurrent.db",crypto)[m
+[32m+[m
+[32m+[m[32m    def worker(index):[m
+[32m+[m
+[32m+[m[32m        db.add_entry([m
+[32m+[m[32m            title=f"{index}",[m
+[32m+[m[32m            username="u",[m
+[32m+[m[32m            password="p",[m
+[32m+[m[32m            url="x",[m
+[32m+[m[32m            notes="n",[m
+[32m+[m[32m            category="c",[m
+[32m+[m[32m            created_at=datetime.now(),[m
+[32m+[m[32m            updated_at=datetime.now(),[m
+[32m+[m[32m            tags=""[m
+[32m+[m[32m        )[m
+[32m+[m
+[32m+[m[32m    threads=[][m
+[32m+[m
+[32m+[m[32m    for i in range(50):[m
+[32m+[m[32m        t=threading.Thread([m
+[32m+[m[32m            target=worker,[m
+[32m+[m[32m            args=(i,)[m
+[32m+[m[32m        )[m
+[32m+[m
+[32m+[m[32m        threads.append(t)[m
+[32m+[m[32m        t.start()[m
+[32m+[m
+[32m+[m[32m    for t in threads:[m
+[32m+[m[32m        t.join()[m
+[32m+[m
+[32m+[m[32m    rows=db.get_all()[m
+[32m+[m
+[32m+[m[32m    assert len(rows)==50[m
+\ No newline at end of file[m
+[1mdiff --git a/tests/test_crypt_cycle.py b/tests/test_crypt_cycle.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..aba7498[m
+[1m--- /dev/null[m
+[1m+++ b/tests/test_crypt_cycle.py[m
+[36m@@ -0,0 +1,37 @@[m
+[32m+[m[32mfrom src.core.key_manager import KeyManager[m
+[32m+[m[32mfrom src.core.crypto.placeholder import AES256EncryptionService[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_encrypt_decrypt_cycle():[m
+[32m+[m[32m    key_manager = KeyManager()[m
+[32m+[m
+[32m+[m[32m    key_manager.storage.store_key(b"1"*32)[m
+[32m+[m
+[32m+[m[32m    key_manager._unlocked = True[m
+[32m+[m
+[32m+[m[32m    crypto = AES256EncryptionService(key_manager)[m
+[32m+[m
+[32m+[m[32m    data = {[m
+[32m+[m[32m        "title": "gmail",[m
+[32m+[m[32m        "username": "admin",[m
+[32m+[m[32m        "password": "123456",[m
+[32m+[m[32m        "url": "https://gmail.com",[m
+[32m+[m[32m        "notes": "secret",[m
+[32m+[m[32m        "category": "mail"[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    encrypted = crypto.encrypt(data)[m
+[32m+[m
+[32m+[m[32m    blob_text = encrypted.decode(errors="ignore")[m
+[32m+[m
+[32m+[m[32m    assert "gmail" not in blob_text[m
+[32m+[m[32m    assert "admin" not in blob_text[m
+[32m+[m[32m    assert "123456" not in blob_text[m
+[32m+[m
+[32m+[m[32m    decrypted = crypto.decrypt(encrypted)[m
+[32m+[m
+[32m+[m[32m    assert decrypted["title"]=="gmail"[m
+[32m+[m
+[32m+[m[32m    assert decrypted["username"]=="admin"[m
+[32m+[m
+[32m+[m[32m    assert decrypted["password"]=="123456"[m
+\ No newline at end of file[m
+[1mdiff --git a/tests/test_password_generator.py b/tests/test_password_generator.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..00b7f68[m
+[1m--- /dev/null[m
+[1m+++ b/tests/test_password_generator.py[m
+[36m@@ -0,0 +1,28 @@[m
+[32m+[m[32mfrom src.core.vault.password_generator import PasswordGenerator[m
+[32m+[m
+[32m+[m[32mfrom zxcvbn import zxcvbn[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_password_generator():[m
+[32m+[m
+[32m+[m[32m    generator = PasswordGenerator()[m
+[32m+[m
+[32m+[m[32m    passwords = set()[m
+[32m+[m
+[32m+[m[32m    allowed = set(generator._filter(generator.LOWER) + generator._filter(generator.UPPER) + generator._filter(generator.DIGITS) + generator._filter(generator.SYMBOLS))[m
+[32m+[m
+[32m+[m[32m    for i in range(10000):[m
+[32m+[m[32m        password = (generator.generate())[m
+[32m+[m
+[32m+[m[32m        passwords.add(password)[m
+[32m+[m
+[32m+[m[32m        for ch in password:[m
+[32m+[m[32m            assert (ch in allowed)[m
+[32m+[m
+[32m+[m[32m        score = (zxcvbn(password).get("score",0))[m
+[32m+[m
+[32m+[m[32m        assert score >= 3[m
+[32m+[m
+[32m+[m[32m        assert len(password) >= 8[m
+[32m+[m
+[32m+[m[32m    assert len(passwords) > 9900[m
+\ No newline at end of file[m
+[1mdiff --git a/tests/test_validation.py b/tests/test_validation.py[m
+[1mindex 1565d83..64fee02 100644[m
+[1m--- a/tests/test_validation.py[m
+[1m+++ b/tests/test_validation.py[m
+[36m@@ -6,9 +6,9 @@[m [mdef test_argon2_validation():[m
+     hashing = KeyHashing()[m
+ [m
+     passwords = [[m
+[31m-        "StrongAbebAbeb333!",[m
+[31m-        "AnotherGnida777@",[m
+[31m-        "VeryStrongDopustim999#"[m
+[32m+[m[32m        "ChupepAbebAbeb228!",[m
+[32m+[m[32m        "AnotherGnida911@",[m
+[32m+[m[32m        "GigigagaDopustim6769#"[m
+     ][m
+ [m
+     for password in passwords:[m

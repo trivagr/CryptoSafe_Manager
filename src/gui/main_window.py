@@ -2,8 +2,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QLineEdit,
@@ -15,12 +13,12 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtGui import QAction
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, QTimer
 
 from src.gui.services.vault_service import VaultService
 from src.gui.dialogs.entry_dialog import EntryDialog
 
-from src.core.crypto.authentication import authenticate
+from src.core.crypto.authentication import authenticate, update_activity, session_expired, shutdown
 from src.core.crypto.password_change import PasswordChange
 
 
@@ -34,6 +32,12 @@ class MainWindow(QMainWindow):
     ):
 
         super().__init__()
+
+        self.session_timer = QTimer()
+
+        self.session_timer.timeout.connect(self.check_session)
+
+        self.session_timer.start(30000)
 
         self.db = db
 
@@ -425,14 +429,12 @@ class MainWindow(QMainWindow):
 
         if event.type() == QEvent.WindowStateChange:
 
-            if (
-                    self.isMinimized()
-                    and not self.is_locking
-            ):
+            update_activity()
+
+            if self.isMinimized():
                 self.lock_vault()
 
         super().changeEvent(event)
-
     # =====================================================
     # LOCK
     # =====================================================
@@ -505,3 +507,23 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
         self.raise_()
+
+    def check_session(self):
+
+        SESSION_TIMEOUT = 900
+
+        if session_expired(
+                SESSION_TIMEOUT
+        ):
+            shutdown(self.key_manager)
+
+            QMessageBox.warning(
+
+                self,
+
+                "Session expired",
+
+                "Session timeout exceeded"
+            )
+
+            self.close()

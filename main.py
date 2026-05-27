@@ -21,16 +21,20 @@ from src.core.crypto.placeholder import (
     AES256EncryptionService
 )
 
+from src.core.crypto.password_validator import (
+    validate_password
+)
+
+from src.core.vault.password_generator import (
+    PasswordGenerator
+)
+
 
 def main():
 
     app = QApplication(
         sys.argv
     )
-
-    # =====================================================
-    # KEY MANAGER
-    # =====================================================
 
     key_manager = KeyManager()
 
@@ -40,18 +44,10 @@ def main():
 
     event_system = EventBus()
 
-    # =====================================================
-    # DATABASE
-    # =====================================================
-
     db = DatabaseHelper(
         db_path="vault.db",
         crypto=crypto
     )
-
-    # =====================================================
-    # LOAD CREDS
-    # =====================================================
 
     credentials = (
         db.get_master_credentials()
@@ -63,18 +59,78 @@ def main():
 
     if credentials is None:
 
-        password, ok = (
-            QInputDialog.getText(
-                None,
-                "Create Master Password",
-                "Enter new master password:",
-                QLineEdit.Password
-            )
+        generator = PasswordGenerator()
+
+        reply = QMessageBox.question(
+
+            None,
+
+            "Master Password",
+
+            "Generate master password automatically?",
+
+            QMessageBox.Yes |
+            QMessageBox.No
         )
 
-        if not ok or not password:
+        if reply == QMessageBox.Yes:
 
-            sys.exit(0)
+            password = (
+                generator.generate(
+                    length=20
+                )
+            )
+
+            QMessageBox.information(
+
+                None,
+
+                "Generated Password",
+
+                f"Save this password:\n\n{password}"
+            )
+
+        else:
+
+            while True:
+
+                password, ok = (
+                    QInputDialog.getText(
+                        None,
+                        "Create Master Password",
+                        "Enter new master password:",
+                        QLineEdit.Password
+                    )
+                )
+
+                if not ok:
+
+                    sys.exit(0)
+
+                if not password:
+
+                    continue
+
+                break
+
+        # ============================================
+        # VALIDATE
+        # ============================================
+
+        if not validate_password(
+            password
+        ):
+
+            QMessageBox.critical(
+
+                None,
+
+                "Error",
+
+                "Password too weak"
+            )
+
+            sys.exit(1)
 
         salt = (
             key_manager
@@ -96,8 +152,11 @@ def main():
         )
 
         QMessageBox.information(
+
             None,
+
             "Success",
+
             "Master password created"
         )
 
@@ -126,10 +185,6 @@ def main():
 
         sys.exit(0)
 
-    # =====================================================
-    # AUTH
-    # =====================================================
-
     success = authenticate(
 
         key_manager,
@@ -157,10 +212,6 @@ def main():
         )
 
         sys.exit(1)
-
-    # =====================================================
-    # GUI
-    # =====================================================
 
     window = MainWindow(
 
