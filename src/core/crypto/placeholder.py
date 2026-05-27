@@ -2,9 +2,8 @@ import os
 import ctypes
 import json
 from datetime import datetime, timezone
-from src.core.crypto.abstract import (
-    EncryptionService
-)
+from src.core.crypto.abstract import EncryptionService
+
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 def secure_zero_bytes(data: bytearray):
