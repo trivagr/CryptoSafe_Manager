@@ -510,7 +510,7 @@ class MainWindow(QMainWindow):
 
     def check_session(self):
 
-        SESSION_TIMEOUT = 900
+        SESSION_TIMEOUT = 3600
 
         if session_expired(
                 SESSION_TIMEOUT
