@@ -6,9 +6,9 @@ def test_argon2_validation():
     hashing = KeyHashing()
 
     passwords = [
-        "StrongAbebAbeb333!",
-        "AnotherGnida777@",
-        "VeryStrongDopustim999#"
+        "ChupepAbebAbeb228!",
+        "AnotherGnida911@",
+        "GigigagaDopustim6769#"
     ]
 
     for password in passwords:

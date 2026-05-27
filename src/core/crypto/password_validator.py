@@ -5,7 +5,15 @@ common_patterns = {
     "qwerty",
     "111111",
     "admin",
-    "12345"
+    "12345",
+    "222222",
+    "333333",
+    "444444",
+    "555555",
+    "666666",
+    "777777",
+    "888888",
+    "999999"
 }
 
 def validate_password(password: str) -> bool:
