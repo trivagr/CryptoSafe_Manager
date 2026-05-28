@@ -16,7 +16,6 @@ class TestDatabaseConnection(unittest.TestCase):
             self.db_path.unlink()
 
     def test_connection(self):
-        # Проверяем, что контекстный менеджер работает без ошибок
         with self.db._connection() as conn:
             self.assertIsNotNone(conn)
 
