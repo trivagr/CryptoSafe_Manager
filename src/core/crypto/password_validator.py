@@ -29,9 +29,8 @@ def validate_password(password: str) -> bool:
     if not(has_upper and has_lower and has_digit and has_special):
         return False
 
-    lower_pass = password.lower()
     for pattern in common_patterns:
-        if pattern in lower_pass:
+        if pattern in password.lower():
             return False
 
     return True

@@ -2,39 +2,32 @@ import sys
 
 from PySide6.QtWidgets import (
     QApplication,
-    QMessageBox,
-    QInputDialog,
-    QLineEdit
+    QMessageBox
 )
 
 from src.gui.main_window import MainWindow
+from src.gui.dialogs.password_dialog import PasswordDialog
+
 from src.database.db import DatabaseHelper
 
 from src.core.key_manager import KeyManager
 from src.core.events import EventBus
 
-from src.core.crypto.authentication import (
-    authenticate
-)
+from src.core.crypto.authentication import authenticate
 
 from src.core.crypto.placeholder import (
-    AES256EncryptionService
+    AES256EncryptionService,
+    secure_zero_bytes
 )
 
-from src.core.crypto.password_validator import (
-    validate_password
-)
+from src.core.crypto.password_validator import validate_password
 
-from src.core.vault.password_generator import (
-    PasswordGenerator
-)
+from src.core.vault.password_generator import PasswordGenerator
 
 
 def main():
 
-    app = QApplication(
-        sys.argv
-    )
+    app = QApplication(sys.argv)
 
     key_manager = KeyManager()
 
@@ -49,9 +42,7 @@ def main():
         crypto=crypto
     )
 
-    credentials = (
-        db.get_master_credentials()
-    )
+    credentials = db.get_master_credentials()
 
     # =====================================================
     # FIRST START
@@ -62,88 +53,71 @@ def main():
         generator = PasswordGenerator()
 
         reply = QMessageBox.question(
-
             None,
-
             "Master Password",
-
             "Generate master password automatically?",
-
-            QMessageBox.Yes |
-            QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
 
-            password = (
-                generator.generate(
-                    length=20
-                )
+            generated_password = generator.generate(
+                length=20
             )
 
             QMessageBox.information(
-
                 None,
-
                 "Generated Password",
-
-                f"Save this password:\n\n{password}"
+                f"Save this password:\n\n{generated_password}"
             )
+
+            password_bytes = bytearray(
+                generated_password.encode()
+            )
+
+            del generated_password
 
         else:
 
-            while True:
+            dialog = PasswordDialog(
+                "Create Master Password",
+                "Enter new master password:"
+            )
 
-                password, ok = (
-                    QInputDialog.getText(
-                        None,
-                        "Create Master Password",
-                        "Enter new master password:",
-                        QLineEdit.Password
-                    )
+            if not dialog.exec():
+                sys.exit(0)
+
+            password_bytes = dialog.get_password()
+
+            if not password_bytes:
+                sys.exit(0)
+
+        password_str = password_bytes.decode()
+
+        try:
+
+            if not validate_password(password_str):
+
+                QMessageBox.critical(
+                    None,
+                    "Error",
+                    "Password too weak"
                 )
 
-                if not ok:
+                secure_zero_bytes(password_bytes)
 
-                    sys.exit(0)
+                del password_bytes
 
-                if not password:
+                sys.exit(1)
 
-                    continue
+        finally:
 
-                break
+            del password_str
 
-        # ============================================
-        # VALIDATE
-        # ============================================
+        salt = key_manager.hashing.salt_generate()
 
-        if not validate_password(
-            password
-        ):
-
-            QMessageBox.critical(
-
-                None,
-
-                "Error",
-
-                "Password too weak"
-            )
-
-            sys.exit(1)
-
-        salt = (
-            key_manager
-            .hashing
-            .salt_generate()
-        )
-
-        password_hash = (
-            key_manager
-            .hashing
-            .hash_password(
-                password
-            )
+        password_hash = key_manager.hashing.hash_password(
+            password_bytes
         )
 
         db.set_master_password(
@@ -151,82 +125,70 @@ def main():
             salt
         )
 
+        secure_zero_bytes(password_bytes)
+
+        del password_bytes
+
         QMessageBox.information(
-
             None,
-
             "Success",
-
             "Master password created"
         )
 
-        credentials = (
-            db.get_master_credentials()
-        )
+        credentials = db.get_master_credentials()
 
     # =====================================================
     # LOGIN
     # =====================================================
 
-    password, ok = (
-        QInputDialog.getText(
-            None,
+    while True:
+
+        dialog = PasswordDialog(
             "Unlock Vault",
-            "Enter master password:",
-            QLineEdit.Password
+            "Enter master password:"
         )
-    )
 
-    if not ok:
+        if not dialog.exec():
+            sys.exit(0)
 
-        sys.exit(0)
+        password_bytes = dialog.get_password()
 
-    if not password:
+        if not password_bytes:
+            continue
 
-        sys.exit(0)
+        success = authenticate(
+            key_manager,
+            password_bytes,
+            credentials["password_hash"],
+            credentials["salt"]
+        )
 
-    success = authenticate(
+        secure_zero_bytes(password_bytes)
 
-        key_manager,
+        del password_bytes
 
-        password,
-
-        credentials[
-            "password_hash"
-        ],
-
-        credentials[
-            "salt"
-        ]
-    )
-
-    if not success:
+        if success:
+            break
 
         QMessageBox.critical(
-
             None,
-
             "Error",
-
             "Authentication failed"
         )
 
-        sys.exit(1)
+    # =====================================================
+    # GUI
+    # =====================================================
 
     window = MainWindow(
-
         db=db,
-
         key_manager=key_manager,
-
         event_system=event_system
     )
 
     window.show()
 
-    sys.exit(
-        app.exec()
-    )
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

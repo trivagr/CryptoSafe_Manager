@@ -34,19 +34,23 @@ class AES256EncryptionService(EncryptionService):
             "category": data.get("category"),
         }
 
-        plaintext = json.dumps(
+        plaintext = bytearray(json.dumps(
             package,
             sort_keys=True,
             separators=(",", ":")
-        ).encode()
+        ).encode())
 
         aesgcm = AESGCM(key)
 
-        ciphertext = aesgcm.encrypt(
-            nonce=nonce,
-            data=plaintext,
-            associated_data=None
-        )
+        try:
+           ciphertext = aesgcm.encrypt(
+                nonce=nonce,
+                data=plaintext,
+                associated_data=None
+            )
+
+        finally:
+            secure_zero_bytes(plaintext)
 
         return nonce + ciphertext
 
@@ -62,13 +66,17 @@ class AES256EncryptionService(EncryptionService):
 
         aesgcm = AESGCM(key)
 
-        plaintext = aesgcm.decrypt(
+        plaintext = bytearray(aesgcm.decrypt(
             nonce=nonce,
             data=ciphertext,
             associated_data=None
-        )
+        ))
 
-        package = json.loads(plaintext.decode())
+        try:
+            package = json.loads(plaintext.decode())
+
+        finally:
+            secure_zero_bytes(plaintext)
 
         if package.get("version") != self.VERSION:
             raise ValueError("Unsupported encryption version")

@@ -7,7 +7,7 @@ last_login_time = None
 is_authenticated = False
 
 
-def authenticate(key_manager, password, stored_hash, salt):
+def authenticate(key_manager, password: bytes, stored_hash, salt):
     global failed_attempts
     global last_login_time
     global is_authenticated
@@ -26,7 +26,7 @@ def authenticate(key_manager, password, stored_hash, salt):
 
             return False
 
-    except:
+    except Exception:
 
         handle_failed_attempt()
 

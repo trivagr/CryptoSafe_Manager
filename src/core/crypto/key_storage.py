@@ -38,7 +38,7 @@ class KeyStorage:
                 return None
 
             self._last_access = time.time()
-            return bytes(self._key)
+            return self._key
 
 
     def clear_key(self):

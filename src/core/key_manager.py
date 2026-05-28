@@ -12,23 +12,15 @@ class KeyManager:
 
         self._unlocked = False
 
-    def unlock(self, password, stored_hash, salt):
+    def unlock(self, password: bytes, stored_hash, salt):
 
         if self._unlocked:
             raise RuntimeError("Already unlocked")
 
-        if not self.hashing.password_verify(
-            password,
-            stored_hash
-        ):
-            raise ValueError(
-                "Invalid login/password"
-            )
+        if not self.hashing.password_verify(password, stored_hash):
+            raise ValueError("Invalid login/password")
 
-        key = self.hashing.derive(
-            password,
-            salt
-        )
+        key = self.hashing.derive(password, salt)
 
         self.storage.store_key(key)
 
