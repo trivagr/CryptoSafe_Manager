@@ -24,6 +24,9 @@ from src.core.crypto.password_validator import validate_password
 
 from src.core.vault.password_generator import PasswordGenerator
 
+from src.core.clipboard.clipboard_service import ClipboardService
+from src.core.clipboard.platform_adapter import WindowsClipboardAdapter
+
 
 def main():
 
@@ -36,6 +39,13 @@ def main():
     )
 
     event_system = EventBus()
+
+    clipboard_adapter = WindowsClipboardAdapter()
+
+    clipboard_service = ClipboardService(
+        adapter=clipboard_adapter,
+        event_bus=event_system
+    )
 
     db = DatabaseHelper(
         db_path="vault.db",
@@ -183,7 +193,8 @@ def main():
     window = MainWindow(
         db=db,
         key_manager=key_manager,
-        event_system=event_system
+        event_system=event_system,
+        clipboard_service=clipboard_service
     )
 
     window.show()

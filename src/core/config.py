@@ -56,6 +56,10 @@ class ConfigManager:
             "max_length": 64
         }
 
+        self.clipboard = {
+            "auto_clear_seconds" : 30
+        }
+
     def ensure_dirs_exist(self):
         self.database_dir.mkdir(parents=True, exist_ok=True)
 
@@ -80,3 +84,9 @@ class ConfigManager:
 
     def get_pbkdf2_settings(self):
         return self.pbkdf2
+
+    def get_password_generator(self):
+        return self.password_generator
+
+    def get_clipboard(self):
+        return self.clipboard
