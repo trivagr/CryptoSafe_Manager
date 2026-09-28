@@ -1,132 +1,80 @@
-import threading
-import time
+from __future__ import annotations
+
+from typing import Optional
 
 
 class ClipboardMonitor:
+    def __init__(self, adapter, service):
+        self.adapter = adapter
+        self.service = service
+        self._last_observed: Optional[str] = None
+        self._last_access_token = None
+        self._pending_mismatch_value: Optional[str] = None
+        self._pending_mismatch_count = 0
 
-    def __init__(
-        self,
-        clipboard_service,
-        check_interval=1
-    ):
+    def _get_mismatch_threshold(self) -> int:
+        try:
+            security_level = str(self.service.get_settings().get("security_level", "basic")).strip().lower()
+        except Exception:
+            security_level = "basic"
+        if security_level == "basic":
+            return 2
+        return 1
 
-        self.clipboard_service = clipboard_service
+    def _reset_pending_mismatch(self):
+        self._pending_mismatch_value = None
+        self._pending_mismatch_count = 0
 
-        self.check_interval = check_interval
-
-        self.suspicious_activity = False
-
-        self.block_future_copies = False
-
-        self._running = False
-
-        self._thread = None
-
-        self._last_known_value = ""
-
-        self._internal_change = False
-
-        self._callbacks = []
-
-    def subscribe(self, callback):
-
-        if callback not in self._callbacks:
-            self._callbacks.append(callback)
-
-    def unsubscribe(self, callback):
-
-        if callback in self._callbacks:
-            self._callbacks.remove(callback)
-
-    def _notify(self):
-
-        for callback in self._callbacks:
-
+    def _get_access_token(self):
+        access_token_getter = getattr(self.adapter, "get_clipboard_access_token", None)
+        if callable(access_token_getter):
             try:
-                callback()
+                return access_token_getter()
             except Exception:
-                pass
+                return None
+        return None
 
-    def start(self):
+    def poll(self):
+        if hasattr(self.service, "uses_system_clipboard") and not self.service.uses_system_clipboard():
+            self._reset_pending_mismatch()
+            self._last_observed = None
+            self._last_access_token = None
+            return
+        observed = self.adapter.get_clipboard_content()
+        access_token = self._get_access_token()
+        active = self.service.has_active_content()
 
-        if self._running:
+        if not active:
+            self._reset_pending_mismatch()
+            self._last_observed = observed
+            self._last_access_token = access_token
             return
 
-        self._running = True
+        if observed is None:
+            return
 
-        try:
-            self._last_known_value = (
-                self.clipboard_service.get_text()
-            )
-        except Exception:
-            self._last_known_value = ""
+        if self.service.matches_current_text(observed):
+            if (
+                access_token is not None
+                and self._last_access_token is not None
+                and access_token != self._last_access_token
+            ):
+                self.service.register_suspicious_activity(reason="external_read", observed_value=observed)
+            self._reset_pending_mismatch()
+            self._last_observed = observed
+            self._last_access_token = access_token
+            return
 
-        self._thread = threading.Thread(
-            target=self._worker,
-            daemon=True
-        )
+        if observed == self._pending_mismatch_value:
+            self._pending_mismatch_count += 1
+        else:
+            self._pending_mismatch_value = observed
+            self._pending_mismatch_count = 1
 
-        self._thread.start()
-
-    def stop(self):
-
-        self._running = False
-
-    def reset_alerts(self):
-
-        self.suspicious_activity = False
-
-        self.block_future_copies = False
-
-    def block_copying(self):
-
-        self.block_future_copies = True
-
-    def allow_copying(self):
-
-        self.block_future_copies = False
-
-    def mark_internal_copy(self):
-
-        self._internal_change = True
-
-        try:
-            self._last_known_value = (
-                self.clipboard_service.get_text()
-            )
-        except Exception:
-            self._last_known_value = ""
-
-    def _handle_suspicious_activity(self):
-
-        self.suspicious_activity = True
-
-        self.clipboard_service.clear()
-
-        self._notify()
-
-    def _worker(self):
-
-        while self._running:
-
-            try:
-
-                current = (self.clipboard_service.get_text())
-
-                if self._internal_change:
-
-                    self._internal_change = False
-
-                    self._last_known_value = current
-
-                elif current != self._last_known_value:
-
-                    self._handle_suspicious_activity()
-
-                    self._last_known_value = ""
-
-                time.sleep(self.check_interval)
-
-            except Exception:
-
-                time.sleep( self.check_interval)
+        mismatch_threshold = self._get_mismatch_threshold()
+        if self._pending_mismatch_count >= mismatch_threshold:
+            reason = "external_clear" if observed == "" else "external_change"
+            self.service.register_suspicious_activity(reason=reason, observed_value=observed)
+            self._reset_pending_mismatch()
+        self._last_observed = observed
+        self._last_access_token = access_token

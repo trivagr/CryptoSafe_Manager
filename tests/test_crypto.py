@@ -1,60 +1,55 @@
 import unittest
+import sys
+import os
 
-from src.core.crypto.placeholder import AES256EncryptionService
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.core.crypto.abstract import EncryptionService
+from src.core.crypto.legacy_encryption import LegacyXOREncryptionService
 from src.core.key_manager import KeyManager
 
 
-class TestAES256Encryption(unittest.TestCase):
+class TestCrypto(unittest.TestCase):  # класс для тестирования криптографических функций
 
-    def setUp(self):
-
+    def setUp(self):  # метод для настройки тестовой среды
+        self.crypto = LegacyXOREncryptionService()
         self.key_manager = KeyManager()
+        self.test_key = b"test_key_16_bytes"
+        self.test_data = b"Hello, World!"
 
-        self.key_manager.storage.store_key(b"1" * 32)
+    def test_encryption_service_abstract(
+            self):  # тест для проверки, что абстрактный класс EncryptionService не может быть инстанцирован напрямую
+        with self.assertRaises(TypeError):
+            EncryptionService()
 
-        self.key_manager._unlocked = True
+    def test_encrypt_decrypt(self):  # тест для проверки шифрования и расшифровки
+        encrypted = self.crypto.encrypt(self.test_data, self.test_key)
+        decrypted = self.crypto.decrypt(encrypted, self.test_key)
+        self.assertEqual(self.test_data, decrypted)
 
-        self.crypto = AES256EncryptionService(self.key_manager)
+    def test_different_keys(self):  # тест для проверки, что разные ключи дают разный результат
+        key1 = b"key123"
+        key2 = b"key456"
 
-        self.data = {
-            "title": "gmail",
-            "username": "admin",
-            "password": "123456",
-            "url": "https://gmail.com",
-            "notes": "secret",
-            "category": "mail"
-        }
+        encrypted1 = self.crypto.encrypt(self.test_data, key1)
+        encrypted2 = self.crypto.encrypt(self.test_data, key2)
 
-    def test_encrypt_decrypt(self):
+        self.assertNotEqual(encrypted1, encrypted2)
 
-        encrypted = self.crypto.encrypt(self.data)
+    def test_key_manager_derive(self):  # тест для проверки, что key_manager может создать ключ из пароля
+        password = "test_password"
+        key, salt = self.key_manager.derive_key(password)
 
-        decrypted = self.crypto.decrypt(encrypted)
+        self.assertIsInstance(key, bytes)
+        self.assertIsInstance(salt, bytes)
+        self.assertEqual(len(key), 32)  # 32 байта для AES-256
 
-        self.assertEqual(
-            decrypted["title"],
-            self.data["title"]
-        )
-
-        self.assertEqual(
-            decrypted["username"],
-            self.data["username"]
-        )
-
-        self.assertEqual(
-            decrypted["password"],
-            self.data["password"]
-        )
-
-    def test_encrypt_changes_data(self):
-
-        encrypted = self.crypto.encrypt(self.data)
-
-        self.assertNotEqual(
-            encrypted,
-            str(self.data).encode()
-        )
+    def test_key_manager_store_load(self):  # тест для проверки, что key_manager может сохранить и загрузить ключ
+        test_key = b"test_key_123"
+        self.key_manager.store_key("test", test_key)
+        loaded = self.key_manager.load_key("test")
+        self.assertEqual(test_key, loaded)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

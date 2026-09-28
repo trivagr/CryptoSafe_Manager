@@ -1,106 +1,176 @@
-import time
+from datetime import datetime, timedelta
+from typing import Callable, Optional
 
-user_logged_in = None
+from ..events import Event, EventType, event_bus
+from ..state_manager import StateManager
+from .key_derivation import KeyDerivation
+from .key_storage import KeyStorage
+from .password_validator import PasswordValidator
 
-failed_attempts = 0
-last_login_time = None
-is_authenticated = False
+
+class AuthenticationError(Exception):
+    pass
 
 
-def authenticate(key_manager, password: bytes, stored_hash, salt):
-    global failed_attempts
-    global last_login_time
-    global is_authenticated
+class AuthenticationService:
+    CACHE_TTL_SECONDS = 3600
 
-    try:
+    def __init__(
+        self,
+        key_storage: KeyStorage,
+        key_derivation: KeyDerivation,
+        password_validator: PasswordValidator,
+        state_manager: Optional[StateManager] = None,
+    ):
+        self.key_storage = key_storage
+        self.key_derivation = key_derivation
+        self.password_validator = password_validator
+        self.state_manager = state_manager or StateManager()
+        self._failed_attempts = 0
+        self._locked_until: Optional[datetime] = None
 
-        success = key_manager.unlock(
-            password,
-            stored_hash,
-            salt
+    def is_initialized(self) -> bool:
+        return self.key_storage.has_master_key()
+
+    def register_master_password(self, password: str):
+        is_valid, errors = self.password_validator.validate(password, strict=True)
+        if not is_valid:
+            raise AuthenticationError("; ".join(errors))
+
+        auth_data = self.key_derivation.create_auth_hash(password)
+        encryption_key, encryption_salt = self.key_derivation.derive_encryption_key(password)
+        self.key_storage.store_metadata(
+            auth_data["hash"],
+            encryption_salt,
+            self.key_derivation.export_params(),
         )
+        self.key_storage.cache_active_key(encryption_key, ttl_seconds=self.CACHE_TTL_SECONDS)
+        self.state_manager.set_key_cache_timeout(self.CACHE_TTL_SECONDS)
+        self.state_manager.unlock()
+        self.state_manager.reset_failed_attempts()
+        event_bus.publish(Event(EventType.USER_LOGGED_IN, {"initialized": True}))
 
-        if not success:
-
-            handle_failed_attempt()
-
+    def authenticate(self, password: str) -> bool:
+        if self._is_locked_out():
+            event_bus.publish(
+                Event(
+                    EventType.USER_LOGIN_FAILED,
+                    {
+                        "reason": "lockout_active",
+                        "remaining_seconds": self.get_lockout_remaining_seconds(),
+                    },
+                )
+            )
             return False
 
-    except Exception:
+        metadata = self.key_storage.load_metadata()
+        if metadata is None:
+            raise AuthenticationError("Master password is not initialized")
 
-        handle_failed_attempt()
+        stored_key_derivation = KeyDerivation.from_params(metadata.params)
 
-        return False
+        if not stored_key_derivation.verify_auth_hash(password, metadata.auth_hash):
+            self._register_failure()
+            return False
 
-    failed_attempts = 0
+        encryption_key = stored_key_derivation.derive_key_with_known_salt(password, metadata.encryption_salt)
+        self.key_storage.cache_active_key(encryption_key, ttl_seconds=self.CACHE_TTL_SECONDS)
+        self.state_manager.set_key_cache_timeout(self.CACHE_TTL_SECONDS)
+        self.state_manager.unlock()
+        self._failed_attempts = 0
+        self._locked_until = None
+        self.state_manager.reset_failed_attempts()
+        event_bus.publish(Event(EventType.USER_LOGGED_IN, {"initialized": False}))
+        return True
 
-    is_authenticated = True
+    def change_master_password(
+        self,
+        current_password: str,
+        new_password: str,
+        rotate_entries_callback: Optional[Callable[[bytes, bytes], None]] = None,
+    ):
+        metadata = self.key_storage.load_metadata()
+        if metadata is None:
+            raise AuthenticationError("Master password is not initialized")
+        current_key_derivation = KeyDerivation.from_params(metadata.params)
+        if not current_key_derivation.verify_auth_hash(current_password, metadata.auth_hash):
+            self._register_failure()
+            raise AuthenticationError("Current password is invalid")
 
-    last_login_time = time.time()
+        is_valid, errors = self.password_validator.validate(new_password, strict=True)
+        if not is_valid:
+            raise AuthenticationError("; ".join(errors))
 
-    if user_logged_in:
-        user_logged_in()
+        old_encryption_key = current_key_derivation.derive_key_with_known_salt(current_password, metadata.encryption_salt)
+        auth_data = self.key_derivation.create_auth_hash(new_password)
+        new_encryption_key, new_encryption_salt = self.key_derivation.derive_encryption_key(new_password)
 
-    return True
+        try:
+            if rotate_entries_callback is not None:
+                rotate_entries_callback(old_encryption_key, new_encryption_key)
+            self.key_storage.store_metadata(
+                auth_data["hash"],
+                new_encryption_salt,
+                self.key_derivation.export_params(),
+            )
+        except Exception as error:
+            self.key_storage.cache_active_key(old_encryption_key, ttl_seconds=self.CACHE_TTL_SECONDS)
+            raise AuthenticationError(f"Vault re-encryption failed: {error}") from error
 
+        self.key_storage.cache_active_key(new_encryption_key, ttl_seconds=self.CACHE_TTL_SECONDS)
+        self.state_manager.unlock()
+        self._failed_attempts = 0
+        self._locked_until = None
+        self.state_manager.reset_failed_attempts()
+        event_bus.publish(Event(EventType.PASSWORD_CHANGED, {"status": "success"}))
 
-def logout(key_manager):
+    def logout(self):
+        event_bus.publish(Event(EventType.USER_LOGGED_OUT, {}))
+        self.key_storage.clear_cached_key()
+        self.state_manager.lock()
 
-    global is_authenticated
-    global failed_attempts
-    global last_login_time
+    def is_authenticated(self) -> bool:
+        if self.key_storage.is_cache_expired():
+            return False
+        return self.state_manager.is_unlocked() and self.key_storage.get_cached_key() is not None
 
-    key_manager.lock()
+    def get_active_key(self) -> Optional[bytes]:
+        return self.key_storage.get_cached_key()
 
-    is_authenticated = False
+    def get_lockout_remaining_seconds(self) -> int:
+        if self._locked_until is None:
+            return 0
+        return max(0, int((self._locked_until - datetime.now()).total_seconds()))
 
-    failed_attempts = 0
+    def load_password_policy(self) -> dict:
+        policy = self.key_storage.database.get_setting("security.password_policy", default={})
+        if isinstance(policy, dict):
+            return policy
+        return {}
 
-    last_login_time = None
+    def save_password_policy(self, policy: dict):
+        self.key_storage.database.set_setting("security.password_policy", policy)
 
+    def _is_locked_out(self) -> bool:
+        return self._locked_until is not None and datetime.now() < self._locked_until
 
-def shutdown(key_manager):
-
-    global is_authenticated
-    global failed_attempts
-    global last_login_time
-
-    key_manager.lock()
-
-    is_authenticated = False
-
-    failed_attempts = 0
-
-    last_login_time = None
-
-
-def handle_failed_attempt():
-
-    global failed_attempts
-
-    failed_attempts += 1
-
-    if failed_attempts <= 2:
-        delay = 1
-    elif failed_attempts <= 4:
-        delay = 5
-    else:
-        delay = 30
-
-    time.sleep(delay)
-
-
-def update_activity():
-
-    global last_login_time
-
-    last_login_time = time.time()
-
-def session_expired(timeout_seconds):
-
-    global last_login_time
-
-    if last_login_time is None:
-        return False
-
-    return (time.time() - last_login_time) > timeout_seconds
+    def _register_failure(self):
+        self._failed_attempts += 1
+        self.state_manager.register_failed_attempt()
+        if self._failed_attempts <= 2:
+            delay_seconds = 1
+        elif self._failed_attempts <= 4:
+            delay_seconds = 5
+        else:
+            delay_seconds = 30
+        self._locked_until = datetime.now() + timedelta(seconds=delay_seconds)
+        event_bus.publish(
+            Event(
+                EventType.USER_LOGIN_FAILED,
+                {
+                    "reason": "invalid_password",
+                    "failed_attempts": self._failed_attempts,
+                    "lockout_seconds": delay_seconds,
+                },
+            )
+        )

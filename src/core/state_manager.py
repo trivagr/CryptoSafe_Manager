@@ -1,109 +1,100 @@
-import threading
+from datetime import datetime, timedelta
+from enum import Enum
 from typing import Optional
-from src.database.db import DatabaseHelper
-from src.core.crypto.abstract import EncryptionService
-from src.core.crypto.placeholder import secure_zero_bytes
+
+
+class SessionState(Enum):
+    LOCKED = "locked"
+    UNLOCKED = "unlocked"
+
 
 class StateManager:
+    CLIPBOARD_REDACTED_MARKER = "[protected]"
 
-    def __init__(self, db: DatabaseHelper, crypto: EncryptionService, key: bytes):
-        self._session_locked = True
-        self._clipboard_content: Optional[str] = None
-        self._clipboard_timer: Optional[threading.Timer] = None
-        self._idle_timer: Optional[threading.Timer] = None
-        self.db = db
-        self.crypto = crypto
-        self.key = key
-        self._lock = threading.Lock()
+    def __init__(self):
+        self.session_state = SessionState.LOCKED
+        self.login_timestamp: Optional[datetime] = None
+        self.last_activity: Optional[datetime] = None
+        self.failed_attempt_count = 0
+        self.application_active = True
+        self.clipboard_content: Optional[str] = None
+        self.clipboard_timer: Optional[datetime] = None
+        self.inactivity_timeout = 300
+        self.key_cache_timeout = 3600
 
-    def lock_session(self):
-        with self._lock:
-            self._session_locked = True
+    def unlock(self):
+        now = datetime.now()
+        self.session_state = SessionState.UNLOCKED
+        self.login_timestamp = now
+        self.last_activity = now
+        self.application_active = True
 
-    def unlock_session(self):
-        with self._lock:
-            self._session_locked = False
+    def lock(self):
+        self.session_state = SessionState.LOCKED
+        self.login_timestamp = None
+        self.clipboard_content = None
+        self.clipboard_timer = None
 
-    def set_clipboard(self, content: str, timeout: int = 30):
-        with self._lock:
-            # Обнуляем старое содержимое буфера
-            if self._clipboard_content:
-                secure_zero_bytes(bytearray(self._clipboard_content.encode()))
-            self._clipboard_content = content
+    def is_locked(self) -> bool:
+        return self.session_state == SessionState.LOCKED
 
-            if self._clipboard_timer:
-                self._clipboard_timer.cancel()
-            self._clipboard_timer = threading.Timer(timeout, self.clear_clipboard)
-            self._clipboard_timer.start()
+    def is_unlocked(self) -> bool:
+        return self.session_state == SessionState.UNLOCKED
+
+    def update_activity(self):
+        self.last_activity = datetime.now()
+
+    def get_idle_time(self) -> float:
+        if self.last_activity is None:
+            return 0
+        return (datetime.now() - self.last_activity).total_seconds()
+
+    def should_auto_lock(self) -> bool:
+        if self.session_state != SessionState.UNLOCKED or self.last_activity is None:
+            return False
+        return self.get_idle_time() >= self.inactivity_timeout
+
+    def should_expire_key_cache(self) -> bool:
+        if self.session_state != SessionState.UNLOCKED or self.last_activity is None:
+            return False
+        return self.get_idle_time() >= self.key_cache_timeout
+
+    def set_inactivity_timeout(self, seconds: int):
+        self.inactivity_timeout = max(1, int(seconds))
+
+    def set_key_cache_timeout(self, seconds: int):
+        self.key_cache_timeout = max(1, int(seconds))
+
+    def set_application_active(self, is_active: bool):
+        self.application_active = is_active
+        if is_active:
+            self.update_activity()
+
+    def register_failed_attempt(self):
+        self.failed_attempt_count += 1
+
+    def reset_failed_attempts(self):
+        self.failed_attempt_count = 0
+
+    def set_clipboard(self, content: str, timeout_seconds: int = 30, redact: bool = False):
+        self.clipboard_content = self.CLIPBOARD_REDACTED_MARKER if redact else content
+        if timeout_seconds > 0:
+            self.clipboard_timer = datetime.now() + timedelta(seconds=timeout_seconds)
+        else:
+            self.clipboard_timer = None
 
     def get_clipboard(self) -> Optional[str]:
-        with self._lock:
-            return self._clipboard_content
+        if self.clipboard_timer and datetime.now() >= self.clipboard_timer:
+            self.clipboard_content = None
+            self.clipboard_timer = None
+        return self.clipboard_content
 
     def clear_clipboard(self):
-        with self._lock:
-            if self._clipboard_content:
-                secure_zero_bytes(bytearray(self._clipboard_content.encode()))
-            self._clipboard_content = None
+        self.clipboard_content = None
+        self.clipboard_timer = None
 
-            if self._clipboard_timer:
-                self._clipboard_timer.cancel()
-                self._clipboard_timer = None
-
-    def clear_session_key(self):
-        with self._lock:
-            if self._session_key:
-                secure_zero_bytes(bytearray(self._session_key))
-                self._session_key = None
-
-    def set_setting(self, key: str, value: str, encrypted: bool = False):
-
-        with self._lock:
-            if encrypted:
-                value_bytes = value.encode()
-                value = self.crypto.encrypt(value_bytes, self.key)
-            else:
-                value = value
-
-            conn = self.db._get_connection()
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO settings (setting_key, setting_value, encrypted)
-                VALUES (?, ?, ?)
-                ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value, encrypted=excluded.encrypted;
-            """, (key, value, int(encrypted)))
-            conn.commit()
-            conn.close()
-
-    def get_setting(self, key: str, encrypted: bool = False) -> Optional[str]:
-
-        with self._lock:
-            conn = self.db._get_connection()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT setting_value FROM settings WHERE setting_key=?;
-            """, (key,))
-            row = cursor.fetchone()
-            conn.close()
-
-            if not row:
-                return None
-
-            value = row[0]
-            if encrypted and value is not None:
-                value = self.crypto.decrypt(value, self.key).decode()
-            return value
-
-    def start_idle_timer(self, timeout: int, callback):
-
-        with self._lock:
-            if self._idle_timer:
-                self._idle_timer.cancel()
-            self._idle_timer = threading.Timer(timeout, callback)
-            self._idle_timer.start()
-
-    def reset_idle_timer(self):
-        with self._lock:
-            if self._idle_timer:
-                self._idle_timer.cancel()
-                self._idle_timer = None
+    def get_clipboard_remaining_seconds(self) -> int:
+        if self.clipboard_timer is None:
+            return 0
+        remaining = int((self.clipboard_timer - datetime.now()).total_seconds())
+        return max(0, remaining)
