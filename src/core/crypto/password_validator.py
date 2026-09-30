@@ -1,193 +1,183 @@
-import ctypes
-import json
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Optional
-
-from ...database.db import Database
-from ...database.models import KeyStore
+import re
+import secrets
+from typing import List, Tuple, Optional
 
 
-@dataclass
-class KeyMetadata:  #класс для хранения метаданных ключа
-    auth_hash: str
-    encryption_salt: bytes
-    params: dict
-    version: int = 1
+class PasswordValidator:
+    def __init__(self, config: dict = None):
+        if config is None:
+            config = {}
 
+        self.min_length = config.get('min_password_length', 12)  # минимальная длина пароля (минимум 12 символов)
 
-class KeyStorage:  #класс для управления хранением ключей и метаданных в базе данных
-    AUTH_HASH_KEY_TYPE = "auth_hash"
-    ENC_SALT_KEY_TYPE = "enc_salt"
-    PARAMS_KEY_TYPE = "params"
-    LEGACY_MASTER_KEY_TYPE = "master"
+        # требования к символам
+        self.require_uppercase = config.get('require_uppercase', True)  # заглавные
+        self.require_lowercase = config.get('require_lowercase', True)  # строчные
+        self.require_digits = config.get('require_digits', True)  # цифры
+        self.require_special = config.get('require_special', True)  # спецсимволы
 
-    def __init__(self, database: Database):
-        self.database = database
-        self._cached_key: Optional[bytearray] = None
-        self._cached_key_length = 0
-        self._cache_expires_at: Optional[datetime] = None
-        self._memory_protected = False
-        self._crypt32 = self._load_crypt32()
-
-    def has_master_key(self) -> bool:  #метод для проверки наличия сохраненного ключа в базе данных
-        return (
-            self.database.get_key_store(self.AUTH_HASH_KEY_TYPE) is not None
-            or self.database.get_key_store(self.LEGACY_MASTER_KEY_TYPE) is not None
-        )
-
-    def store_metadata(self, auth_hash: str, encryption_salt: bytes, params: dict):  #метод для сохранения метаданных ключа в базе данных
-        now = datetime.now()
-        version = int(params.get("version", 1))
-        params_json = json.dumps(params, ensure_ascii=False)
-
-        records = [
-            KeyStore(
-                key_type=self.AUTH_HASH_KEY_TYPE,
-                key_data=auth_hash.encode("utf-8"),
-                version=version,
-                created_at=now,
-                hash=auth_hash,
-                last_rotated_at=now,
-            ),
-            KeyStore(
-                key_type=self.ENC_SALT_KEY_TYPE,
-                key_data=encryption_salt,
-                version=version,
-                created_at=now,
-                salt=encryption_salt,
-                last_rotated_at=now,
-            ),
-            KeyStore(
-                key_type=self.PARAMS_KEY_TYPE,
-                key_data=params_json.encode("utf-8"),
-                version=version,
-                created_at=now,
-                params=params_json,
-                last_rotated_at=now,
-            ),
+        # список распространенных паролей
+        self.common_passwords = [
+            'password12345', '1234567890qq', 'qwerty', 'password123', 'admin',
+            'zxcqwe', 'welcome', 'monkey', 'dragon', 'master',
+            'demon228', 'lolkek', '', 'qazwsx', 'pudge1337'
         ]
 
-        for record in records:
-            self.database.save_key_store(record)
+    def validate(self, password: str, strict: bool = False) -> Tuple[bool, List[str]]:
+        errors = []
 
-    def load_metadata(self) -> Optional[KeyMetadata]:  #метод для загрузки метаданных ключа из базы данных
-        auth_hash = self.database.get_key_store(self.AUTH_HASH_KEY_TYPE)
-        enc_salt = self.database.get_key_store(self.ENC_SALT_KEY_TYPE)
-        params = self.database.get_key_store(self.PARAMS_KEY_TYPE)
-        if auth_hash and enc_salt and params:
-            params_data = self._decode_params(params)
-            return KeyMetadata(
-                auth_hash=self._decode_text(auth_hash.key_data, auth_hash.hash),
-                encryption_salt=enc_salt.key_data or enc_salt.salt,
-                params=params_data,
-                version=auth_hash.version or params_data.get("version", 1),
-            )
+        if len(password) < self.min_length:  # проверка длины
+            errors.append(f"Пароль должен содержать минимум {self.min_length} символов")
 
-        legacy = self.database.get_key_store(self.LEGACY_MASTER_KEY_TYPE)
-        if legacy is None:
-            return None
-        params_data = self._decode_legacy_params(legacy)
-        return KeyMetadata(
-            auth_hash=legacy.hash or self._decode_text(legacy.key_data, ""),
-            encryption_salt=legacy.salt,
-            params=params_data,
-            version=int(params_data.get("version", legacy.version or 1)),
-        )
+        if not password:  # проверка на пустой пароль
+            errors.append("Пароль не может быть пустым")
+            return False, errors
 
-    def cache_active_key(self, key: bytes, ttl_seconds: int = 3600):
-        self.clear_cached_key()
-        self._cached_key = bytearray(key)
-        self._cached_key_length = len(key)
-        self._cache_expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
-        self._memory_protected = self._protect_memory(self._cached_key)
+        if strict:
 
-    def touch_cached_key(self, ttl_seconds: int = 3600):
-        if self._cached_key is None:
-            return
-        self._cache_expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+            if self.require_uppercase and not re.search(r'[A-Z]', password):  # проверка наличия заглавных букв
+                errors.append("Пароль должен содержать хотя бы одну заглавную букву")
 
-    def is_cache_expired(self) -> bool:
-        return self._cache_expires_at is not None and datetime.now() >= self._cache_expires_at
+            if self.require_lowercase and not re.search(r'[a-z]', password):  # проверка наличия строчных букв
+                errors.append("Пароль должен содержать хотя бы одну строчную букву")
 
-    def get_cached_key(self) -> Optional[bytes]:
-        if self._cached_key is None or self.is_cache_expired():
-            return None
-        key_bytes = self._read_cached_key()
-        return key_bytes[: self._cached_key_length]
+            if self.require_digits and not re.search(r'\d', password):  # проверка наличия цифр
+                errors.append("Пароль должен содержать хотя бы одну цифру")
 
-    def clear_cached_key(self):
-        if self._cached_key is None:
-            return
-        if self._memory_protected:
-            self._unprotect_in_place(self._cached_key)
-        for index in range(len(self._cached_key)):
-            self._cached_key[index] = 0
-        self._cached_key = None
-        self._cached_key_length = 0
-        self._cache_expires_at = None
-        self._memory_protected = False
+            if self.require_special and not re.search(r'[!@#$%^&*(),.?":{}|<>]',
+                                                      password):  # проверка наличия спецсимволов
+                errors.append("Пароль должен содержать хотя бы один специальный символ")
 
-    def _decode_params(self, record: KeyStore) -> dict:
-        raw = record.key_data or record.params.encode("utf-8")
-        try:
-            return json.loads(raw.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return {}
+            if password.lower() in self.common_passwords:  # проверка на распространенные пароли
+                errors.append("Этот пароль слишком распространен")
 
-    def _decode_legacy_params(self, record: KeyStore) -> dict:
-        if not record.params:
-            return {}
-        try:
-            return json.loads(record.params)
-        except json.JSONDecodeError:
-            return {}
+            if self._has_sequences(password):  # проверка на последовательности (123, abc, qwerty)
+                errors.append("Пароль содержит простую последовательность (например, 123 или abc)")
 
-    def _decode_text(self, raw: bytes, fallback: str) -> str:
-        if raw:
-            try:
-                return raw.decode("utf-8")
-            except UnicodeDecodeError:
-                return fallback
-        return fallback
+            if self._has_repetitions(password):  # проверка на повторяющиеся символы
+                errors.append("Пароль содержит слишком много повторяющихся символов")
 
-    def _read_cached_key(self) -> bytes:
-        if self._cached_key is None:
-            return b""
-        temp = bytearray(self._cached_key)
-        try:
-            if self._memory_protected:
-                self._unprotect_in_place(temp)
-            return bytes(temp)
-        finally:
-            for index in range(len(temp)):
-                temp[index] = 0
+        return len(errors) == 0, errors
 
-    def _load_crypt32(self):
-        if ctypes.sizeof(ctypes.c_void_p) == 0:
-            return None
-        try:
-            crypt32 = ctypes.windll.crypt32
-            crypt32.CryptProtectMemory.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32]
-            crypt32.CryptProtectMemory.restype = ctypes.c_bool
-            crypt32.CryptUnprotectMemory.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32]
-            crypt32.CryptUnprotectMemory.restype = ctypes.c_bool
-            return crypt32
-        except AttributeError:
-            return None
+    def _has_sequences(self, password: str) -> bool:
+        password_lower = password.lower()
 
-    def _protect_memory(self, buffer: bytearray) -> bool:
-        if self._crypt32 is None:
-            return False
-        block_size = 16
-        remainder = len(buffer) % block_size
-        if remainder:
-            buffer.extend(b"\x00" * (block_size - remainder))
-        raw = (ctypes.c_char * len(buffer)).from_buffer(buffer)
-        return bool(self._crypt32.CryptProtectMemory(raw, len(buffer), 0))
+        # распространенные последовательности
+        sequences = [
+            '123', '234', '345', '456', '567', '678', '789',
+            'abc', 'bcd', 'cde', 'def', 'efg', 'fgh', 'ghi',
+            'qwe', 'wer', 'ert', 'rty', 'tyu', 'yui', 'uio',
+            'asd', 'sdf', 'dfg', 'fgh', 'ghj', 'hjk', 'jkl',
+            'zxc', 'xcv', 'cvb', 'vbn', 'bnm',
+            'qwerty', 'asdfgh', 'zxcvbn', 'qwertyuiop', 'asdfghjkl'
+        ]
 
-    def _unprotect_in_place(self, buffer: bytearray):
-        if self._crypt32 is None:
-            return
-        raw = (ctypes.c_char * len(buffer)).from_buffer(buffer)
-        self._crypt32.CryptUnprotectMemory(raw, len(buffer), 0)
+        for seq in sequences:
+            if seq in password_lower:
+                return True
+
+        # проверка на клавиатурные ряды (qwerty, йцукен)
+        keyboard_rows = [
+            'qwertyuiop', 'asdfghjkl', 'zxcvbnm',
+            'йцукенгшщзхъ', 'фывапролджэ', 'ячсмитьбю'
+        ]
+
+        for row in keyboard_rows:
+            for i in range(len(row) - 3):
+                seq = row[i:i + 4]
+                if seq in password_lower:
+                    return True
+
+        return False
+
+    def _has_repetitions(self, password: str) -> bool:
+        if re.search(r'(.)\1{3,}', password):  # проверка на 4+ одинаковых символа подряд
+            return True
+
+        from collections import Counter
+        counts = Counter(password.lower())  # проверка на 8+ одинаковых символов в любом месте
+        for char, count in counts.items():
+            if count > 7 and char.isalnum():
+                return True
+
+        return False
+
+    def get_strength_score(self, password: str) -> int:
+        score = 0
+
+        # длина (макс 25 баллов)
+        length = len(password)
+        if length >= 16:
+            score += 25
+        elif length >= 12:
+            score += 20
+        elif length >= 8:
+            score += 10
+        elif length >= 6:
+            score += 5
+
+        # разнообразие символов (макс 40 баллов)
+        has_upper = 1 if re.search(r'[A-Z]', password) else 0
+        has_lower = 1 if re.search(r'[a-z]', password) else 0
+        has_digit = 1 if re.search(r'\d', password) else 0
+        has_special = 1 if re.search(r'[!@#$%^&*(),.?":{}|<>]', password) else 0
+
+        variety = (has_upper + has_lower + has_digit + has_special) * 10
+        score += variety
+
+        # бонус за смешение типов (макс 20)
+        if has_upper + has_lower + has_digit + has_special >= 3:
+            score += 10
+        if has_upper + has_lower + has_digit + has_special == 4:
+            score += 10
+
+        # штрафы (макс -35)
+        if password.lower() in self.common_passwords:
+            score -= 25
+        elif self._has_sequences(password):
+            score -= 15
+        elif self._has_repetitions(password):
+            score -= 10
+
+        return max(0, min(100, score))
+
+    def get_strength_label(self, score: int) -> str:
+        if score < 20:
+            return "Очень слабый"
+        elif score < 40:
+            return "Слабый"
+        elif score < 60:
+            return "Средний"
+        elif score < 80:
+            return "Хороший"
+        else:
+            return "Отличный"
+
+    def suggest_improvements(self, password: str) -> List[str]:  # рекомендации
+        suggestions = []
+
+        if len(password) < self.min_length:
+            suggestions.append(f"Увеличьте длину до {self.min_length}+ символов")
+
+        if self.require_uppercase and not re.search(r'[A-Z]', password):
+            suggestions.append("Добавьте заглавные буквы")
+
+        if self.require_lowercase and not re.search(r'[a-z]', password):
+            suggestions.append("Добавьте строчные буквы")
+
+        if self.require_digits and not re.search(r'\d', password):
+            suggestions.append("Добавьте цифры")
+
+        if self.require_special and not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+            suggestions.append("Добавьте специальные символы")
+
+        if self._has_sequences(password):
+            suggestions.append("Избегайте простых последовательностей (123, abc, qwerty)")
+
+        if self._has_repetitions(password):
+            suggestions.append("Избегайте повторяющихся символов")
+
+        if password.lower() in self.common_passwords:
+            suggestions.append("Этот пароль слишком распространен")
+
+        return suggestions
